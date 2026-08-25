@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <script>
+      // Early handler to prevent WebSocket/HMR disconnect noise in preview
+      window.addEventListener('unhandledrejection', function (e) {
+        var reason = (e && e.reason && (e.reason.message || e.reason.stack || '' + e.reason)) || '';
+        if (reason.indexOf('WebSocket') !== -1 || reason.indexOf('websocket') !== -1) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+        }
+      });
+      window.addEventListener('error', function (e) {
+        var msg = (e && (e.message || '')) || '';
+        if (msg.indexOf('WebSocket') !== -1 || msg.indexOf('websocket') !== -1) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+        }
+      });
+    </script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>OMR SCANNER // TANGERINE ORANGE EDITION</title>
+    <meta name="description" content="Optical Mark Recognition scanner with 12-digit LRN extraction and 60-item bubble recognition." />
+    
+    <!-- PWA Web App Manifest & Theme -->
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#FF7A00" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="OMR Scanner" />
+    <link rel="icon" type="image/svg+xml" href="/icons/icon-192.svg" />
+    <link rel="apple-touch-icon" href="/icons/icon-192.svg" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  </head>
+  <body class="bg-[#0D0F12] text-slate-200 antialiased font-mono selection:bg-[#FF7A00] selection:text-black">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+
+

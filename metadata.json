@@ -1,0 +1,10 @@
+{
+  "name": "OMR Sheet Scanner",
+  "description": "Optical Mark Recognition scanner for standardized multiple-choice answer sheets with 12-digit LRN extraction, 60-item bubble recognition, auto-grading, and camera capture.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

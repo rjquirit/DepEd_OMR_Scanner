@@ -1,0 +1,92 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    background-color: #0D0F12;
+    color: #e2e8f0;
+    font-family: 'JetBrains Mono', monospace, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas;
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+/* Tangerine Orange Technical Theme Styles */
+.bg-tech-dark {
+  background-color: #0D0F12;
+}
+
+.bg-tech-surface {
+  background-color: #14171A;
+}
+
+.bg-tech-card {
+  background-color: #1C1F24;
+}
+
+.border-tech-border {
+  border-color: #272C33;
+}
+
+.border-tech-orange {
+  border-color: rgba(255, 122, 0, 0.4);
+}
+
+.text-tech-orange {
+  color: #FF7A00;
+}
+
+.shadow-tech-orange {
+  box-shadow: 0 0 10px rgba(255, 122, 0, 0.35);
+}
+
+.shadow-tech-orange-lg {
+  box-shadow: 0 0 20px rgba(255, 122, 0, 0.45);
+}
+
+.dot-matrix-bg {
+  background-image: radial-gradient(#272C33 1px, transparent 1px);
+  background-size: 18px 18px;
+}
+
+.dot-matrix-orange {
+  background-image: radial-gradient(rgba(255, 122, 0, 0.15) 1px, transparent 1px);
+  background-size: 18px 18px;
+}
+
+@keyframes scanline {
+  0% {
+    top: 5%;
+    opacity: 0.8;
+  }
+  50% {
+    top: 90%;
+    opacity: 1;
+  }
+  100% {
+    top: 5%;
+    opacity: 0.8;
+  }
+}
+
+.animate-scanline {
+  animation: scanline 3.2s ease-in-out infinite;
+}
+
+/* Custom crisp scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0D0F12;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #272C33;
+  border-radius: 2px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #FF7A00;
+}
+

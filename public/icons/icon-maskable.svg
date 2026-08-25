@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" fill="#0D0F12"/>
+  <rect x="64" y="64" width="384" height="384" rx="48" fill="#14171A" stroke="#FF7A00" stroke-width="6"/>
+  
+  <!-- Corner Fiducial Markers -->
+  <rect x="96" y="96" width="36" height="36" fill="#FF7A00" rx="4"/>
+  <rect x="380" y="96" width="36" height="36" fill="#FF7A00" rx="4"/>
+  <rect x="96" y="380" width="36" height="36" fill="#FF7A00" rx="4"/>
+  <rect x="380" y="380" width="36" height="36" fill="#FF7A00" rx="4"/>
+  
+  <!-- Bubbles Grid -->
+  <circle cx="150" cy="180" r="16" fill="#1E293B" stroke="#64748B" stroke-width="3"/>
+  <circle cx="200" cy="180" r="16" fill="#FF7A00"/>
+  <circle cx="250" cy="180" r="16" fill="#1E293B" stroke="#64748B" stroke-width="3"/>
+  <circle cx="300" cy="180" r="16" fill="#1E293B" stroke="#64748B" stroke-width="3"/>
+  <circle cx="360" cy="180" r="16" fill="#FF7A00"/>
+
+  <circle cx="150" cy="240" r="16" fill="#FF7A00"/>
+  <circle cx="200" cy="240" r="16" fill="#1E293B" stroke="#64748B" stroke-width="3"/>
+  <circle cx="250" cy="240" r="16" fill="#1E293B" stroke="#64748B" stroke-width="3"/>
+  <circle cx="300" cy="240" r="16" fill="#FF7A00"/>
+  <circle cx="360" cy="240" r="16" fill="#1E293B" stroke="#64748B" stroke-width="3"/>
+
+  <circle cx="150" cy="300" r="16" fill="#1E293B" stroke="#64748B" stroke-width="3"/>
+  <circle cx="200" cy="300" r="16" fill="#1E293B" stroke="#64748B" stroke-width="3"/>
+  <circle cx="250" cy="300" r="16" fill="#FF7A00"/>
+  <circle cx="300" cy="300" r="16" fill="#1E293B" stroke="#64748B" stroke-width="3"/>
+  <circle cx="360" cy="300" r="16" fill="#FF7A00"/>
+
+  <circle cx="150" cy="360" r="16" fill="#1E293B" stroke="#64748B" stroke-width="3"/>
+  <circle cx="200" cy="360" r="16" fill="#FF7A00"/>
+  <circle cx="250" cy="360" r="16" fill="#1E293B" stroke="#64748B" stroke-width="3"/>
+  <circle cx="300" cy="360" r="16" fill="#FF7A00"/>
+  <circle cx="360" cy="360" r="16" fill="#1E293B" stroke="#64748B" stroke-width="3"/>
+
+  <!-- Scanning indicator -->
+  <line x1="80" y1="270" x2="432" y2="270" stroke="#FF7A00" stroke-width="4" stroke-linecap="round"/>
+</svg>

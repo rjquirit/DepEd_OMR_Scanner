@@ -4,6 +4,7 @@ export interface PWAState {
   isInstallable: boolean;
   isInstalled: boolean;
   isIOS: boolean;
+  isOnline: boolean;
   installApp: () => Promise<boolean>;
 }
 
@@ -11,6 +12,7 @@ export function usePWA(): PWAState {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [isInstalled, setIsInstalled] = useState(false);
   const [isIOS, setIsIOS] = useState(false);
+  const [isOnline, setIsOnline] = useState(typeof navigator !== "undefined" ? navigator.onLine : true);
 
   useEffect(() => {
     // Check standalone mode (already installed)
@@ -27,6 +29,12 @@ export function usePWA(): PWAState {
     const isIosDevice = /iphone|ipad|ipod/.test(userAgent) && !(window as any).MSStream;
     setIsIOS(isIosDevice);
 
+    // Online / Offline event listeners
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
     // Listen for beforeinstallprompt
     const handleBeforeInstallPrompt = (e: Event) => {
       e.preventDefault();
@@ -41,19 +49,32 @@ export function usePWA(): PWAState {
     window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
     window.addEventListener("appinstalled", handleAppInstalled);
 
-    // Register Service Worker
-    if ("serviceWorker" in navigator && process.env.NODE_ENV !== "development") {
+    // Register Service Worker for offline execution
+    if ("serviceWorker" in navigator) {
       navigator.serviceWorker
         .register("/sw.js")
         .then((reg) => {
-          console.log("Service Worker registered with scope:", reg.scope);
+          console.log("[PWA] Service Worker registered with scope:", reg.scope);
+          // Check for service worker updates
+          reg.addEventListener("updatefound", () => {
+            const installingWorker = reg.installing;
+            if (installingWorker) {
+              installingWorker.addEventListener("statechange", () => {
+                if (installingWorker.state === "installed" && navigator.serviceWorker.controller) {
+                  console.log("[PWA] New offline service worker available.");
+                }
+              });
+            }
+          });
         })
         .catch((err) => {
-          console.warn("Service Worker registration failed:", err);
+          console.warn("[PWA] Service Worker registration failed:", err);
         });
     }
 
     return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
       window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
       window.removeEventListener("appinstalled", handleAppInstalled);
     };
@@ -82,6 +103,7 @@ export function usePWA(): PWAState {
     isInstallable: Boolean(deferredPrompt) || (!isInstalled && isIOS),
     isInstalled,
     isIOS,
+    isOnline,
     installApp,
   };
 }

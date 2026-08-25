@@ -12,10 +12,12 @@ import {
   Layers,
   Terminal,
   Activity,
+  Sliders,
 } from "lucide-react";
 import confetti from "canvas-confetti";
-import { AnswerKey, OMRScanResult, OptionType, ScannedRecord } from "../../types";
+import { AnswerKey, OMRScanResult, OptionType, QuestionDiagnosticLog, ScannedRecord } from "../../types";
 import { gradeScanResult } from "../../utils/grading";
+import { OMRErrorReviewModal } from "../Diagnostics/OMRErrorReviewModal";
 
 interface ScanResultInspectorProps {
   scanResult: OMRScanResult;
@@ -41,6 +43,7 @@ export function ScanResultInspector({
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [zoomLevel, setZoomLevel] = useState(1);
   const [invertView, setInvertView] = useState(false);
+  const [inspectingQ, setInspectingQ] = useState<QuestionDiagnosticLog | null>(null);
 
   // Compute grading against active answer key
   const grading = gradeScanResult(currentResult, activeAnswerKey);
@@ -587,6 +590,23 @@ export function ScanResultInspector({
                                     MULTI
                                   </span>
                                 )}
+
+                                {/* Diagnostic Inspection Button */}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const diag =
+                                      ansObj?.diagnostic ||
+                                      currentResult.diagnostic_record?.questions.find((q) => q.question === itemNum);
+                                    if (diag) {
+                                      setInspectingQ(diag);
+                                    }
+                                  }}
+                                  className="p-0.5 text-slate-500 hover:text-[#FF7A00] transition-colors"
+                                  title={`Inspect CV features & Ground Truth for Q${itemNum}`}
+                                >
+                                  <Sliders className="w-3 h-3" />
+                                </button>
                               </div>
                             </div>
                           );
@@ -703,6 +723,34 @@ export function ScanResultInspector({
           </div>
         </div>
       </div>
+
+      {/* Question Diagnostic Inspector Modal */}
+      {inspectingQ && (
+        <OMRErrorReviewModal
+          scanId={currentResult.telemetry?.scanId || currentResult.diagnostic_record?.scanId || "LOCAL_SCAN"}
+          question={inspectingQ}
+          isOpen={!!inspectingQ}
+          onClose={() => setInspectingQ(null)}
+          onAnnotated={(updated) => {
+            // Update local state if needed
+            if (updated.predicted !== undefined) {
+              const updatedAnswers = currentResult.answers.map((ans) => {
+                if (ans.item_number === updated.question) {
+                  return {
+                    ...ans,
+                    diagnostic: updated,
+                  };
+                }
+                return ans;
+              });
+              setCurrentResult({
+                ...currentResult,
+                answers: updatedAnswers,
+              });
+            }
+          }}
+        />
+      )}
     </div>
   );
 }

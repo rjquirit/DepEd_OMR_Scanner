@@ -1,4 +1,9 @@
-import { OMRAnswer, OMRScanResult, OptionType } from "../types";
+import { OMRAnswer, OMRDiagnosticRecord, OMRScanResult, OptionType } from "../types";
+import {
+  calculateImageQualityMetrics,
+  generateScanId,
+  recordDiagnosticLog,
+} from "./omrDiagnosticLogger";
 import {
   DEFAULT_OMR_CONFIG,
   LRN_COLS_X,
@@ -26,6 +31,7 @@ interface Point {
   x: number;
   y: number;
 }
+
 
 function getPerspectiveTransform(
   srcPts: [Point, Point, Point, Point],
@@ -439,12 +445,46 @@ export async function processOMRWithCV(
         item_number: qNum,
         selected_option: qClass.answer,
         confidence: Math.round(qClass.confidence * 100),
+        diagnostic: qClass.diagnosticLog,
       });
     }
   }
 
   answers.sort((a, b) => a.item_number - b.item_number);
   const avgConfidence = Math.round((sumConfidence / 60) * 100) / 100;
+  const processingTimeMs = Math.round((performance.now() - startTime) * 10) / 10;
+
+  // Compute full Image Quality Metrics
+  const qualityMetrics = calculateImageQualityMetrics(
+    rawGray,
+    srcW,
+    srcH,
+    fiducials ? 0.38 : 1.85
+  );
+
+  const scanId = generateScanId();
+
+  // Create immutable OMR Diagnostic Record
+  const diagnosticRecord: OMRDiagnosticRecord = {
+    scanId,
+    timestamp: new Date().toISOString(),
+    engineVersion: "2.5.0",
+    algorithmVersion: "TWO_ZONE_CIRCULAR_RELATIVE_V6",
+    image: {
+      width: srcW,
+      height: srcH,
+      format: "image/jpeg",
+    },
+    quality: {
+      ...qualityMetrics,
+      processingTimeMs,
+    },
+    studentLrn: extractedLRN,
+    questions: questionClassifications.map((qc) => qc.diagnosticLog),
+  };
+
+  // Persist record to diagnostic store
+  recordDiagnosticLog(diagnosticRecord);
 
   // 3. Render Debug Canvas with visual overlays
   const debugCanvas = document.createElement("canvas");
@@ -565,7 +605,7 @@ export async function processOMRWithCV(
     debugPreview = debugCanvas.toDataURL("image/jpeg", 0.85);
   }
 
-  const processingTimeMs = Math.round((performance.now() - startTime) * 10) / 10;
+  const finalProcessingTimeMs = Math.round((performance.now() - startTime) * 10) / 10;
 
   return {
     student_lrn: extractedLRN,
@@ -578,8 +618,9 @@ export async function processOMRWithCV(
     },
     answers,
     scan_timestamp: new Date().toISOString(),
-    processing_time_ms: processingTimeMs,
+    processing_time_ms: finalProcessingTimeMs,
     debug_preview: debugPreview,
+    diagnostic_record: diagnosticRecord,
     telemetry: {
       algorithm: "TWO_ZONE_CIRCULAR_RELATIVE_NORMALIZED",
       totalBubblesEvaluated: 12 * 10 + 60 * 4,
@@ -588,6 +629,7 @@ export async function processOMRWithCV(
       multipleCount,
       averageConfidence: avgConfidence,
       alignmentStatus,
+      scanId,
     },
   };
 }

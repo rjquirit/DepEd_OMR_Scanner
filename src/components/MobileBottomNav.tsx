@@ -1,17 +1,17 @@
 import React from "react";
-import { Scan, Users, KeyRound, Printer, FileQuestion, Download } from "lucide-react";
+import { Scan, Users, KeyRound, Printer, FileQuestion, Download, Cpu } from "lucide-react";
 import { PWAState } from "../utils/usePWA";
 
 interface MobileBottomNavProps {
-  activeTab: "scanner" | "keys" | "roster" | "generator" | "guide";
-  setActiveTab: (tab: "scanner" | "keys" | "roster" | "generator" | "guide") => void;
+  activeTab: "scanner" | "keys" | "roster" | "generator" | "guide" | "diagnostics";
+  setActiveTab: (tab: "scanner" | "keys" | "roster" | "generator" | "guide" | "diagnostics") => void;
   rosterCount: number;
   pwa?: PWAState;
   onOpenPWAInstall?: () => void;
 }
 
 interface NavItem {
-  id: "scanner" | "keys" | "roster" | "generator" | "guide";
+  id: "scanner" | "keys" | "roster" | "generator" | "guide" | "diagnostics";
   label: string;
   icon: React.ComponentType<{ className?: string }>;
   badge?: number;
@@ -22,8 +22,8 @@ export function MobileBottomNav({ activeTab, setActiveTab, rosterCount, pwa, onO
     { id: "scanner", label: "SCAN", icon: Scan },
     { id: "roster", label: "ROSTER", icon: Users, badge: rosterCount },
     { id: "keys", label: "KEYS", icon: KeyRound },
+    { id: "diagnostics", label: "DIAG", icon: Cpu },
     { id: "generator", label: "SHEET", icon: Printer },
-    { id: "guide", label: "SPEC", icon: FileQuestion },
   ];
 
   return (

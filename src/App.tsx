@@ -10,13 +10,14 @@ import { ClassGradebook } from "./components/Roster/ClassGradebook";
 import { PrintableOMRGenerator } from "./components/PrintableSheet/PrintableOMRGenerator";
 import { OMRGuideModal } from "./components/Help/OMRGuideModal";
 import { PWAInstallModal } from "./components/PWA/PWAInstallModal";
+import { OMRDiagnosticWorkbench } from "./components/Diagnostics/OMRDiagnosticWorkbench";
 import { AnswerKey, OMRScanResult, ScannedRecord } from "./types";
 import { DEFAULT_ANSWER_KEY } from "./utils/grading";
 import { processOMRWithCV } from "./utils/omrCvEngine";
 import { usePWA } from "./utils/usePWA";
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<"scanner" | "keys" | "roster" | "generator" | "guide">("scanner");
+  const [activeTab, setActiveTab] = useState<"scanner" | "keys" | "roster" | "generator" | "guide" | "diagnostics">("scanner");
   const [scanMode, setScanMode] = useState<"camera" | "upload">("upload");
   const [isProcessing, setIsProcessing] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
@@ -329,7 +330,10 @@ export default function App() {
           />
         )}
 
-        {/* VIEW 5: OMR Guidelines & Standards Guide */}
+        {/* VIEW 5: OMR Technical Diagnostics & CV Workbench */}
+        {activeTab === "diagnostics" && <OMRDiagnosticWorkbench />}
+
+        {/* VIEW 6: OMR Guidelines & Standards Guide */}
         {activeTab === "guide" && <OMRGuideModal />}
       </main>
 

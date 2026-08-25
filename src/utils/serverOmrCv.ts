@@ -1,5 +1,9 @@
 import sharp from "sharp";
-import { OMRAnswer, OMRScanResult } from "../types";
+import { OMRAnswer, OMRDiagnosticRecord, OMRScanResult } from "../types";
+import {
+  calculateImageQualityMetrics,
+  generateScanId,
+} from "./omrDiagnosticLogger";
 import {
   DEFAULT_OMR_CONFIG,
   LRN_COLS_X,
@@ -489,12 +493,43 @@ export async function processOMRImageWithCV(
         item_number: qNum,
         selected_option: qClass.answer,
         confidence: Math.round(qClass.confidence * 100),
+        diagnostic: qClass.diagnosticLog,
       });
     }
   }
 
   answers.sort((a, b) => a.item_number - b.item_number);
   const avgConfidence = Math.round((sumConfidence / 60) * 100) / 100;
+  const processingTimeMs = Date.now() - startTime;
+
+  // Compute Image Quality Metrics
+  const qualityMetrics = calculateImageQualityMetrics(
+    rawGray,
+    srcW,
+    srcH,
+    fiducials ? 0.38 : 1.85
+  );
+
+  const scanId = generateScanId();
+
+  // Create OMR Diagnostic Record
+  const diagnosticRecord: OMRDiagnosticRecord = {
+    scanId,
+    timestamp: new Date().toISOString(),
+    engineVersion: "2.5.0",
+    algorithmVersion: "TWO_ZONE_CIRCULAR_RELATIVE_V6",
+    image: {
+      width: srcW,
+      height: srcH,
+      format: "image/jpeg",
+    },
+    quality: {
+      ...qualityMetrics,
+      processingTimeMs,
+    },
+    studentLrn: extractedLRN,
+    questions: questionClassifications.map((qc) => qc.diagnosticLog),
+  };
 
   // 5. Generate Diagnostic Debug Preview Overlay Image
   const debugSvg = buildDebugSvgOverlay(lrnClassifications, questionClassifications, config);
@@ -510,7 +545,6 @@ export async function processOMRImageWithCV(
     .toBuffer();
 
   const debugPreview = `data:image/jpeg;base64,${debugCompositeBuffer.toString("base64")}`;
-  const processingTimeMs = Date.now() - startTime;
 
   return {
     student_lrn: extractedLRN,
@@ -525,6 +559,7 @@ export async function processOMRImageWithCV(
     scan_timestamp: new Date().toISOString(),
     processing_time_ms: processingTimeMs,
     debug_preview: debugPreview,
+    diagnostic_record: diagnosticRecord,
     telemetry: {
       algorithm: "TWO_ZONE_CIRCULAR_RELATIVE_NORMALIZED",
       totalBubblesEvaluated: 12 * 10 + 60 * 4,
@@ -533,6 +568,7 @@ export async function processOMRImageWithCV(
       multipleCount,
       averageConfidence: avgConfidence,
       alignmentStatus,
+      scanId,
     },
   };
 }

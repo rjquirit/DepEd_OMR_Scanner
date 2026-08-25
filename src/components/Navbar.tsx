@@ -1,9 +1,9 @@
-import { Scan, KeyRound, Users, Printer, FileQuestion, Download, CheckCircle2, Smartphone } from "lucide-react";
+import { Scan, KeyRound, Users, Printer, FileQuestion, Download, CheckCircle2, Smartphone, Sliders, Cpu, WifiOff, Wifi } from "lucide-react";
 import { PWAState } from "../utils/usePWA";
 
 interface NavbarProps {
-  activeTab: "scanner" | "keys" | "roster" | "generator" | "guide";
-  setActiveTab: (tab: "scanner" | "keys" | "roster" | "generator" | "guide") => void;
+  activeTab: "scanner" | "keys" | "roster" | "generator" | "guide" | "diagnostics";
+  setActiveTab: (tab: "scanner" | "keys" | "roster" | "generator" | "guide" | "diagnostics") => void;
   rosterCount: number;
   hasActiveKey: boolean;
   pwa?: PWAState;
@@ -32,9 +32,28 @@ export function Navbar({
               <span className="text-xs sm:text-sm font-bold tracking-widest text-white uppercase font-mono">
                 OMR_SCANNER
               </span>
-              <span className="text-[9px] uppercase font-bold bg-[#FF7A00]/15 text-[#FF7A00] border border-[#FF7A00]/40 px-1.5 sm:px-2 py-0.5 rounded-xs">
+              <span className="text-[9px] uppercase font-bold bg-[#FF7A00]/15 text-[#FF7A00] border border-[#FF7A00]/40 px-1.5 sm:px-2 py-0.5 rounded-xs hidden xs:inline-block">
                 TANGERINE
               </span>
+
+              {/* Online / Offline Status Badge */}
+              {pwa && !pwa.isOnline ? (
+                <span
+                  className="flex items-center gap-1 text-[9px] uppercase font-bold bg-amber-950/80 text-amber-300 border border-amber-600 px-1.5 py-0.5 rounded-xs shadow-[0_0_6px_rgba(245,158,11,0.3)]"
+                  title="Running in 100% Offline In-Browser CV Mode"
+                >
+                  <WifiOff className="w-2.5 h-2.5 text-amber-400" />
+                  <span>OFFLINE_CV</span>
+                </span>
+              ) : (
+                <span
+                  className="hidden md:flex items-center gap-1 text-[8px] uppercase font-semibold text-emerald-400/80 bg-emerald-950/40 border border-emerald-800/40 px-1.5 py-0.2 rounded-xs"
+                  title="PWA Offline Ready & Connected"
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  <span>OFFLINE_READY</span>
+                </span>
+              )}
             </div>
           </div>
 
@@ -104,6 +123,21 @@ export function Navbar({
             </button>
 
             <button
+              id="nav-diagnostics-btn"
+              onClick={() => setActiveTab("diagnostics")}
+              className={`flex items-center space-x-1.5 px-2.5 sm:px-3 py-1.5 rounded-xs transition-all uppercase tracking-wider font-semibold min-h-[36px] ${
+                activeTab === "diagnostics"
+                  ? "bg-[#FF7A00]/15 text-[#FF7A00] border border-[#FF7A00]/70 shadow-[0_0_10px_rgba(255,122,0,0.25)]"
+                  : "text-slate-400 hover:text-white hover:bg-slate-800/80 border border-transparent"
+              }`}
+              title="OMR Data-Driven CV Diagnostics Workbench"
+            >
+              <Cpu className="w-3.5 h-3.5 text-[#FF7A00]" />
+              <span className="hidden xl:inline">DIAGNOSTICS</span>
+              <span className="xl:hidden">DIAG</span>
+            </button>
+
+            <button
               id="nav-guide-btn"
               onClick={() => setActiveTab("guide")}
               className={`p-2 rounded-xs transition-colors border min-h-[36px] min-w-[36px] flex items-center justify-center ${
@@ -145,4 +179,3 @@ export function Navbar({
     </header>
   );
 }
-

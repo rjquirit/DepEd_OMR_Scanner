@@ -18,20 +18,23 @@ export type ErrorCategory =
 export type DatasetSplit = "CALIBRATION" | "VALIDATION" | "REGRESSION";
 
 export interface BubbleFeatures {
+  coreMean: number;
   innerMean: number;
   ringMean: number;
-  contrast: number;
   p10: number;
   p20: number;
   p30: number;
   darkRatio: number;
+  contrast: number;
+  percentileDarkness: number;
   filledAreaRatio: number;
   largestComponentRatio: number;
   componentCount: number;
   centroidOffset: number;
   centroidScore: number;
   templateDifference: number;
-  finalScore: number;
+  score: number;
+  finalScore?: number;
 }
 
 export interface BubbleGeometry {
@@ -42,6 +45,12 @@ export interface BubbleGeometry {
   radius: number;
   offsetX: number;
   offsetY: number;
+}
+
+export interface BubbleResult {
+  geometry: BubbleGeometry;
+  features: BubbleFeatures;
+  filled: boolean;
 }
 
 export interface BubbleChoiceRecord {
@@ -73,10 +82,28 @@ export interface QuestionDiagnosticLog {
   };
 }
 
+export interface AlignmentMetrics {
+  valid: boolean;
+  fiducialsDetected: number;
+  fiducialConfidence: number;
+  fallbackUsed: boolean;
+  alignmentStatus: string;
+  reprojectionErrorPx: number;
+  maxReprojectionErrorPx: number;
+  cornerErrors?: {
+    tl: number;
+    tr: number;
+    br: number;
+    bl: number;
+  };
+}
+
 export interface ImageQualityMetrics {
   sharpness: number;
   illuminationUniformity: number;
   sheetCoverage: number;
+  contrast: number;
+  exposure: number;
   fiducialConfidence: number;
   homographyReprojectionError: number;
 }
@@ -93,6 +120,7 @@ export interface OMRDiagnosticRecord {
     format?: string;
     fileSizeKb?: number;
   };
+  alignment?: AlignmentMetrics;
   quality: ImageQualityMetrics & {
     processingTimeMs: number;
   };
@@ -106,6 +134,10 @@ export interface OMRAnswer {
   item_number: number;
   selected_option: OptionType;
   confidence?: number;
+  bestScore?: number;
+  secondScore?: number;
+  margin?: number;
+  status?: "CLEAR" | "BLANK" | "MULTIPLE" | "AMBIGUOUS";
   diagnostic?: QuestionDiagnosticLog;
 }
 
@@ -127,6 +159,7 @@ export interface OMRScanResult {
   image_preview?: string;
   debug_preview?: string;
   diagnostic_record?: OMRDiagnosticRecord;
+  alignment?: AlignmentMetrics;
   telemetry?: {
     algorithm: string;
     totalBubblesEvaluated: number;
@@ -136,18 +169,8 @@ export interface OMRScanResult {
     averageConfidence: number;
     alignmentStatus: string;
     scanId?: string;
+    scanQuality?: "GOOD" | "WARNING" | "REJECT";
   };
-}
-
-export interface AnswerKey {
-  id: string;
-  title: string;
-  subject: string;
-  grade_level?: string;
-  created_at: string;
-  passing_score_percentage: number;
-  total_items: number;
-  keys: Record<number, "A" | "B" | "C" | "D">;
 }
 
 export interface ItemGrading {
@@ -170,18 +193,34 @@ export interface GradingResult {
   items: ItemGrading[];
 }
 
-export interface ScannedRecord {
+export interface AnswerKey {
   id: string;
-  timestamp: string;
-  student_lrn: string;
-  student_name: string | null;
-  section: string | null;
-  subject: string | null;
-  score?: number;
-  total_items?: number;
-  percentage?: number;
-  passed?: boolean;
-  scan_result: OMRScanResult;
-  image_preview?: string;
+  title: string;
+  subject: string;
+  grade_level?: string;
+  created_at: string;
+  passing_score_percentage: number;
+  total_items: number;
+  keys: Record<number, "A" | "B" | "C" | "D">;
 }
 
+export interface ScannedRecord {
+  id: string;
+  student_lrn: string;
+  student_name?: string;
+  section?: string;
+  subject?: string;
+  timestamp?: string;
+  score: number;
+  total_items: number;
+  percentage: number;
+  passed: boolean;
+  answers: Record<number, OptionType>;
+  scanned_at: string;
+  answer_key_id: string;
+  answer_key_title: string;
+  confidence_avg: number;
+  diagnostic_scan_id?: string;
+  image_preview?: string;
+  scan_result?: OMRScanResult;
+}

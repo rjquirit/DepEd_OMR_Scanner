@@ -1,4 +1,9 @@
-import { OMRAnswer, OMRDiagnosticRecord, OMRScanResult, OptionType } from "../types";
+import {
+  AlignmentMetrics,
+  OMRAnswer,
+  OMRDiagnosticRecord,
+  OMRScanResult,
+} from "../types";
 import {
   calculateImageQualityMetrics,
   generateScanId,
@@ -8,12 +13,15 @@ import {
   DEFAULT_OMR_CONFIG,
   LRN_COLS_X,
   LRN_ROWS_Y,
+  OMR_ALGORITHM_NAME,
+  OMR_ENGINE_VERSION,
   OMRConfig,
-  QUESTION_COLUMNS,
+  QUESTION_BLOCKS,
   QUESTION_ROWS_Y,
   REF_HEIGHT,
   REF_WIDTH,
   TARGET_FIDUCIALS,
+  getQuestionCoordinateDef,
 } from "./omrConfig";
 import {
   analyzeBubble,
@@ -31,7 +39,6 @@ interface Point {
   x: number;
   y: number;
 }
-
 
 function getPerspectiveTransform(
   srcPts: [Point, Point, Point, Point],
@@ -84,6 +91,41 @@ function getPerspectiveTransform(
   return [b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], 1.0];
 }
 
+function calculateReprojectionErrors(
+  srcPts: [Point, Point, Point, Point],
+  dstPts: [Point, Point, Point, Point]
+): { meanError: number; maxError: number; cornerErrors: { tl: number; tr: number; br: number; bl: number } } {
+  const H = getPerspectiveTransform(srcPts, dstPts);
+  const errors: number[] = [];
+
+  for (let i = 0; i < 4; i++) {
+    const dx = dstPts[i].x;
+    const dy = dstPts[i].y;
+    const denom = H[6] * dx + H[7] * dy + H[8];
+    const reprojectedX = (H[0] * dx + H[1] * dy + H[2]) / denom;
+    const reprojectedY = (H[3] * dx + H[4] * dy + H[5]) / denom;
+
+    const actualX = srcPts[i].x;
+    const actualY = srcPts[i].y;
+    const err = Math.sqrt((reprojectedX - actualX) ** 2 + (reprojectedY - actualY) ** 2);
+    errors.push(err);
+  }
+
+  const meanError = errors.reduce((a, b) => a + b, 0) / 4;
+  const maxError = Math.max(...errors);
+
+  return {
+    meanError: Math.round(meanError * 100) / 100,
+    maxError: Math.round(maxError * 100) / 100,
+    cornerErrors: {
+      tl: Math.round(errors[0] * 100) / 100,
+      tr: Math.round(errors[1] * 100) / 100,
+      br: Math.round(errors[2] * 100) / 100,
+      bl: Math.round(errors[3] * 100) / 100,
+    },
+  };
+}
+
 function warpPerspectiveGrayscale(
   srcData: Uint8Array,
   srcW: number,
@@ -130,7 +172,12 @@ function detectFiducialsAccurately(
   gray: Uint8Array,
   w: number,
   h: number
-): { tl: Point; tr: Point; br: Point; bl: Point } | null {
+): {
+  detected: boolean;
+  corners: { tl: Point; tr: Point; br: Point; bl: Point };
+  confidence: number;
+  sheetCoverage: number;
+} {
   const total = w * h;
   const hist = new Int32Array(256);
   for (let i = 0; i < total; i++) hist[gray[i]]++;
@@ -198,20 +245,31 @@ function detectFiducialsAccurately(
 
   const sheetW = rightCol - leftCol;
   const sheetH = bottomRow - topRow;
+  const sheetCoverage = Math.min(100, Math.max(10, ((sheetW * sheetH) / (w * h)) * 100));
 
   if (sheetW < w * 0.4 || sheetH < h * 0.4) {
-    return null;
+    return {
+      detected: false,
+      corners: {
+        tl: { x: 0, y: 0 },
+        tr: { x: w - 1, y: 0 },
+        br: { x: w - 1, y: h - 1 },
+        bl: { x: 0, y: h - 1 },
+      },
+      confidence: 0.1,
+      sheetCoverage,
+    };
   }
 
-  const cornerZoneW = Math.floor(sheetW * 0.15);
-  const cornerZoneH = Math.floor(sheetH * 0.15);
+  const cornerZoneW = Math.floor(sheetW * 0.18);
+  const cornerZoneH = Math.floor(sheetH * 0.18);
 
-  function findFiducialInBox(minX: number, maxX: number, minY: number, maxY: number): Point | null {
+  function findFiducialInBox(minX: number, maxX: number, minY: number, maxY: number): { pt: Point; conf: number } | null {
     let bestX = -1;
     let bestY = -1;
     let bestScore = -1e9;
 
-    const r = 10;
+    const r = 12;
     for (let y = minY + r + 2; y <= maxY - r - 2; y += 2) {
       for (let x = minX + r + 2; x <= maxX - r - 2; x += 2) {
         let coreDark = 0;
@@ -230,11 +288,11 @@ function detectFiducialsAccurately(
         }
 
         const coreDensity = coreTotal > 0 ? coreDark / coreTotal : 0;
-        if (coreDensity >= 0.82) {
+        if (coreDensity >= 0.80) {
           let surroundWhite = 0;
           let surroundTotal = 0;
-          for (let dy = -22; dy <= 22; dy += 4) {
-            for (let dx = -22; dx <= 22; dx += 4) {
+          for (let dy = -26; dy <= 26; dy += 4) {
+            for (let dx = -26; dx <= 26; dx += 4) {
               if (Math.abs(dx) > r + 3 || Math.abs(dy) > r + 3) {
                 const px = x + dx;
                 const py = y + dy;
@@ -263,8 +321,8 @@ function detectFiducialsAccurately(
       let sumWX = 0;
       let sumWY = 0;
       let sumW = 0;
-      for (let dy = -14; dy <= 14; dy++) {
-        for (let dx = -14; dx <= 14; dx++) {
+      for (let dy = -16; dy <= 16; dy++) {
+        for (let dx = -16; dx <= 16; dx++) {
           const px = bestX + dx;
           const py = bestY + dy;
           if (px >= 0 && px < w && py >= 0 && py < h) {
@@ -277,7 +335,9 @@ function detectFiducialsAccurately(
           }
         }
       }
-      return sumW > 0 ? { x: sumWX / sumW, y: sumWY / sumW } : { x: bestX, y: bestY };
+      const pt = sumW > 0 ? { x: sumWX / sumW, y: sumWY / sumW } : { x: bestX, y: bestY };
+      const conf = Math.min(0.99, Math.max(0.60, bestScore / 3.0));
+      return { pt, conf };
     }
 
     return null;
@@ -289,97 +349,128 @@ function detectFiducialsAccurately(
   const bl = findFiducialInBox(leftCol, leftCol + cornerZoneW, bottomRow - cornerZoneH, bottomRow);
 
   if (tl && tr && br && bl) {
-    return { tl, tr, br, bl };
+    const avgConf = (tl.conf + tr.conf + br.conf + bl.conf) / 4;
+    return {
+      detected: true,
+      corners: { tl: tl.pt, tr: tr.pt, br: br.pt, bl: bl.pt },
+      confidence: Math.round(avgConf * 100) / 100,
+      sheetCoverage,
+    };
   }
 
   return {
-    tl: { x: leftCol + 48, y: topRow + 48 },
-    tr: { x: rightCol - 48, y: topRow + 48 },
-    br: { x: rightCol - 48, y: bottomRow - 48 },
-    bl: { x: leftCol + 48, y: bottomRow - 48 },
+    detected: false,
+    corners: {
+      tl: { x: leftCol + 48, y: topRow + 48 },
+      tr: { x: rightCol - 48, y: topRow + 48 },
+      br: { x: rightCol - 48, y: bottomRow - 48 },
+      bl: { x: leftCol + 48, y: bottomRow - 48 },
+    },
+    confidence: 0.45,
+    sheetCoverage,
   };
 }
 
 /**
- * Client-Side In-Browser Computer Vision OMR Engine
+ * Client-Side HTML5 Canvas CV Scanner Pipeline (Version 5.0)
  */
-export async function processOMRWithCV(
-  imageSource: HTMLImageElement | HTMLCanvasElement | ImageBitmap | ImageData,
+export async function runClientSideOMRScan(
+  canvas: HTMLCanvasElement,
   options: CVEngineOptions = {}
 ): Promise<OMRScanResult> {
   const startTime = performance.now();
   const config: OMRConfig = { ...DEFAULT_OMR_CONFIG, ...options.customConfig };
 
-  let srcW = 1600;
-  let srcH = 2200;
-
-  if (imageSource instanceof ImageData) {
-    srcW = imageSource.width;
-    srcH = imageSource.height;
-  } else if (imageSource instanceof HTMLImageElement) {
-    srcW = imageSource.naturalWidth || imageSource.width || 1600;
-    srcH = imageSource.naturalHeight || imageSource.height || 2200;
-  } else if ("width" in imageSource && "height" in imageSource) {
-    srcW = imageSource.width;
-    srcH = imageSource.height;
-  }
-
-  const canvas = document.createElement("canvas");
-  canvas.width = srcW;
-  canvas.height = srcH;
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
-  if (!ctx) {
-    throw new Error("Failed to initialize 2D canvas context.");
-  }
+  if (!ctx) throw new Error("Failed to get 2D canvas context for OMR processing");
 
-  if (imageSource instanceof ImageData) {
-    ctx.putImageData(imageSource, 0, 0);
-  } else {
-    ctx.drawImage(imageSource, 0, 0, srcW, srcH);
-  }
-
+  const srcW = canvas.width;
+  const srcH = canvas.height;
   const imgData = ctx.getImageData(0, 0, srcW, srcH);
-  const rgba = imgData.data;
-  const total = srcW * srcH;
-  const rawGray = new Uint8Array(total);
+  const srcData = imgData.data;
 
-  for (let i = 0, p = 0; i < rgba.length; i += 4, p++) {
-    rawGray[p] = Math.round(0.299 * rgba[i] + 0.587 * rgba[i + 1] + 0.114 * rgba[i + 2]);
+  // Convert RGBA to Grayscale
+  const rawGray = new Uint8Array(srcW * srcH);
+  for (let i = 0; i < srcW * srcH; i++) {
+    const idx = i * 4;
+    rawGray[i] = Math.round(0.299 * srcData[idx] + 0.587 * srcData[idx + 1] + 0.114 * srcData[idx + 2]);
   }
 
-  const fiducials = detectFiducialsAccurately(rawGray, srcW, srcH);
+  // Detect Fiducials & Perspective Correction
+  const fiducialResult = detectFiducialsAccurately(rawGray, srcW, srcH);
   let normalizedGray: Uint8Array;
   let alignmentStatus = "FIDUCIAL_PERSPECTIVE_LOCKED";
+  let fallbackUsed = false;
+  let alignmentValid = true;
 
-  if (fiducials) {
+  const targetCorners: [Point, Point, Point, Point] = [
+    TARGET_FIDUCIALS.tl,
+    TARGET_FIDUCIALS.tr,
+    TARGET_FIDUCIALS.br,
+    TARGET_FIDUCIALS.bl,
+  ];
+
+  const srcCorners: [Point, Point, Point, Point] = [
+    fiducialResult.corners.tl,
+    fiducialResult.corners.tr,
+    fiducialResult.corners.br,
+    fiducialResult.corners.bl,
+  ];
+
+  const reproj = calculateReprojectionErrors(srcCorners, targetCorners);
+
+  if (fiducialResult.detected && reproj.maxError <= config.maxReprojectionErrorPx) {
     normalizedGray = warpPerspectiveGrayscale(
       rawGray,
       srcW,
       srcH,
       REF_WIDTH,
       REF_HEIGHT,
-      [fiducials.tl, fiducials.tr, fiducials.br, fiducials.bl],
-      [TARGET_FIDUCIALS.tl, TARGET_FIDUCIALS.tr, TARGET_FIDUCIALS.br, TARGET_FIDUCIALS.bl]
+      srcCorners,
+      targetCorners
+    );
+  } else if (fiducialResult.detected) {
+    alignmentStatus = "ALIGNMENT_HIGH_ERROR";
+    normalizedGray = warpPerspectiveGrayscale(
+      rawGray,
+      srcW,
+      srcH,
+      REF_WIDTH,
+      REF_HEIGHT,
+      srcCorners,
+      targetCorners
     );
   } else {
-    alignmentStatus = "RESIZED_FALLBACK";
-    const resizeCanvas = document.createElement("canvas");
-    resizeCanvas.width = REF_WIDTH;
-    resizeCanvas.height = REF_HEIGHT;
-    const rCtx = resizeCanvas.getContext("2d", { willReadFrequently: true });
-    if (rCtx) {
-      rCtx.drawImage(canvas, 0, 0, REF_WIDTH, REF_HEIGHT);
-      const rData = rCtx.getImageData(0, 0, REF_WIDTH, REF_HEIGHT).data;
-      normalizedGray = new Uint8Array(REF_WIDTH * REF_HEIGHT);
-      for (let i = 0, p = 0; i < rData.length; i += 4, p++) {
-        normalizedGray[p] = Math.round(0.299 * rData[i] + 0.587 * rData[i + 1] + 0.114 * rData[i + 2]);
+    fallbackUsed = true;
+    alignmentValid = false;
+    alignmentStatus = "ALIGNMENT_UNCERTAIN_FALLBACK";
+
+    // Client-side bilinear resize fallback
+    normalizedGray = new Uint8Array(REF_WIDTH * REF_HEIGHT);
+    const scaleX = srcW / REF_WIDTH;
+    const scaleY = srcH / REF_HEIGHT;
+    for (let y = 0; y < REF_HEIGHT; y++) {
+      const sy = Math.min(srcH - 1, Math.floor(y * scaleY));
+      for (let x = 0; x < REF_WIDTH; x++) {
+        const sx = Math.min(srcW - 1, Math.floor(x * scaleX));
+        normalizedGray[y * REF_WIDTH + x] = rawGray[sy * srcW + sx];
       }
-    } else {
-      normalizedGray = rawGray;
     }
   }
 
-  // 1. Evaluate LRN (12 columns x 10 rows: 0..9)
+  // Calculate True Image Quality Metrics
+  const qualityMetrics = calculateImageQualityMetrics(
+    rawGray,
+    srcW,
+    srcH,
+    reproj.meanError,
+    fiducialResult.confidence,
+    fiducialResult.sheetCoverage
+  );
+
+  const imageQualityScore = Math.max(0.6, (qualityMetrics.sharpness / 100) * 0.5 + (qualityMetrics.illuminationUniformity / 100) * 0.5);
+
+  // Evaluate LRN
   const lrnClassifications: DigitClassification[] = [];
   let extractedLRN = "";
 
@@ -392,18 +483,20 @@ export async function processOMRWithCV(
         REF_HEIGHT,
         LRN_COLS_X[c],
         LRN_ROWS_Y[r],
-        config.lrnBubbleRadius,
+        config.lrnCoreRadius,
+        config.lrnRingInnerRadius,
+        config.lrnRingOuterRadius,
         config
       );
       digitMeasurements.push({ digit: r, metric });
     }
 
-    const classification = classifyDigitColumn(digitMeasurements, config);
+    const classification = classifyDigitColumn(digitMeasurements, config, imageQualityScore);
     lrnClassifications.push(classification);
     extractedLRN += classification.digitChar;
   }
 
-  // 2. Evaluate 60 Items (3 Columns x 20 Rows)
+  // Evaluate 60 Items across 6 Section Blocks (3 Columns x Top & Bottom)
   const questionClassifications: QuestionClassification[] = [];
   const answers: OMRAnswer[] = [];
 
@@ -412,11 +505,11 @@ export async function processOMRWithCV(
   let multipleCount = 0;
   let sumConfidence = 0;
 
-  for (let colIdx = 0; colIdx < 3; colIdx++) {
-    const col = QUESTION_COLUMNS[colIdx];
-    for (let r = 0; r < 20; r++) {
-      const qNum = col.startQ + r;
-      const rowY = QUESTION_ROWS_Y[r];
+  for (const block of QUESTION_BLOCKS) {
+    for (let r = 0; r < 10; r++) {
+      const qNum = block.startQ + r;
+      const globalRowIdx = block.startRowIdx + r;
+      const expRowY = QUESTION_ROWS_Y[globalRowIdx];
       const opts = ["A", "B", "C", "D"] as const;
 
       const measurements = opts.map((opt) => ({
@@ -425,14 +518,18 @@ export async function processOMRWithCV(
           normalizedGray,
           REF_WIDTH,
           REF_HEIGHT,
-          col[opt],
-          rowY,
-          config.bubbleRadius,
-          config
+          block[opt],
+          expRowY,
+          config.questionCoreRadius,
+          config.questionRingInnerRadius,
+          config.questionRingOuterRadius,
+          config,
+          config.questionPaperRingInnerRadius,
+          config.questionPaperRingOuterRadius
         ),
       }));
 
-      const qClass = classifyQuestion(measurements, qNum, config);
+      const qClass = classifyQuestion(measurements, qNum, config, imageQualityScore);
       questionClassifications.push(qClass);
 
       if (qClass.isBlank) blankCount++;
@@ -445,6 +542,10 @@ export async function processOMRWithCV(
         item_number: qNum,
         selected_option: qClass.answer,
         confidence: Math.round(qClass.confidence * 100),
+        bestScore: qClass.bestScore,
+        secondScore: qClass.secondScore,
+        margin: qClass.margin,
+        status: qClass.status,
         diagnostic: qClass.diagnosticLog,
       });
     }
@@ -452,29 +553,38 @@ export async function processOMRWithCV(
 
   answers.sort((a, b) => a.item_number - b.item_number);
   const avgConfidence = Math.round((sumConfidence / 60) * 100) / 100;
-  const processingTimeMs = Math.round((performance.now() - startTime) * 10) / 10;
-
-  // Compute full Image Quality Metrics
-  const qualityMetrics = calculateImageQualityMetrics(
-    rawGray,
-    srcW,
-    srcH,
-    fiducials ? 0.38 : 1.85
-  );
-
+  const processingTimeMs = Math.round(performance.now() - startTime);
   const scanId = generateScanId();
 
-  // Create immutable OMR Diagnostic Record
+  const alignmentMetrics: AlignmentMetrics = {
+    valid: alignmentValid,
+    fiducialsDetected: fiducialResult.detected ? 4 : 0,
+    fiducialConfidence: fiducialResult.confidence,
+    fallbackUsed,
+    alignmentStatus,
+    reprojectionErrorPx: reproj.meanError,
+    maxReprojectionErrorPx: reproj.maxError,
+    cornerErrors: reproj.cornerErrors,
+  };
+
+  let scanQuality: "GOOD" | "WARNING" | "REJECT" = "GOOD";
+  if (!alignmentValid || reproj.maxError > config.maxReprojectionErrorPx * 1.5) {
+    scanQuality = "REJECT";
+  } else if (reproj.meanError > config.maxReprojectionErrorPx || qualityMetrics.sharpness < 40) {
+    scanQuality = "WARNING";
+  }
+
   const diagnosticRecord: OMRDiagnosticRecord = {
     scanId,
     timestamp: new Date().toISOString(),
-    engineVersion: "2.5.0",
-    algorithmVersion: "TWO_ZONE_CIRCULAR_RELATIVE_V6",
+    engineVersion: OMR_ENGINE_VERSION,
+    algorithmVersion: OMR_ALGORITHM_NAME,
     image: {
       width: srcW,
       height: srcH,
       format: "image/jpeg",
     },
+    alignment: alignmentMetrics,
     quality: {
       ...qualityMetrics,
       processingTimeMs,
@@ -483,129 +593,68 @@ export async function processOMRWithCV(
     questions: questionClassifications.map((qc) => qc.diagnosticLog),
   };
 
-  // Persist record to diagnostic store
+  // Record Diagnostic log into local benchmark pool automatically
   recordDiagnosticLog(diagnosticRecord);
 
-  // 3. Render Debug Canvas with visual overlays
+  // Generate Debug Canvas Overlay URL
   const debugCanvas = document.createElement("canvas");
   debugCanvas.width = REF_WIDTH;
   debugCanvas.height = REF_HEIGHT;
-  const dCtx = debugCanvas.getContext("2d");
-  let debugPreview: string | undefined;
+  const dctx = debugCanvas.getContext("2d");
+  let debugPreviewUrl = "";
 
-  if (dCtx) {
-    // Draw normalized grayscale sheet
-    const grayImgData = dCtx.createImageData(REF_WIDTH, REF_HEIGHT);
-    const dRgba = grayImgData.data;
-    for (let i = 0, p = 0; i < normalizedGray.length; i++, p += 4) {
+  if (dctx) {
+    // Put normalized grayscale
+    const dImgData = dctx.createImageData(REF_WIDTH, REF_HEIGHT);
+    for (let i = 0; i < REF_WIDTH * REF_HEIGHT; i++) {
       const v = normalizedGray[i];
-      dRgba[p] = v;
-      dRgba[p + 1] = v;
-      dRgba[p + 2] = v;
-      dRgba[p + 3] = 255;
+      const idx = i * 4;
+      dImgData.data[idx] = v;
+      dImgData.data[idx + 1] = v;
+      dImgData.data[idx + 2] = v;
+      dImgData.data[idx + 3] = 255;
     }
-    dCtx.putImageData(grayImgData, 0, 0);
+    dctx.putImageData(dImgData, 0, 0);
 
-    // Draw LRN overlays
-    for (let c = 0; c < 12; c++) {
-      const digitClass = lrnClassifications[c];
-      for (let r = 0; r <= 9; r++) {
-        const cx = LRN_COLS_X[c];
-        const cy = LRN_ROWS_Y[r];
-        const isSelected = digitClass.digit === r;
-        const m = digitClass.metrics[r];
-
-        if (isSelected) {
-          dCtx.fillStyle = "rgba(16, 185, 129, 0.35)";
-          dCtx.strokeStyle = "#10B981";
-          dCtx.lineWidth = 2.5;
-          dCtx.beginPath();
-          dCtx.arc(cx, cy, config.lrnBubbleRadius, 0, Math.PI * 2);
-          dCtx.fill();
-          dCtx.stroke();
-        } else if (m && m.score >= config.minScore) {
-          dCtx.fillStyle = "rgba(245, 158, 11, 0.25)";
-          dCtx.strokeStyle = "#F59E0B";
-          dCtx.lineWidth = 2;
-          dCtx.beginPath();
-          dCtx.arc(cx, cy, config.lrnBubbleRadius, 0, Math.PI * 2);
-          dCtx.fill();
-          dCtx.stroke();
-        }
-      }
-    }
-
-    // Draw Question Overlays
+    // Draw diagnostic overlay
+    dctx.lineWidth = 2;
     questionClassifications.forEach((q) => {
-      const colGroup = QUESTION_COLUMNS.find((cg) => q.questionNumber >= cg.startQ && q.questionNumber <= cg.endQ);
-      if (!colGroup) return;
-
-      const rowIdx = q.questionNumber - colGroup.startQ;
-      const cy = QUESTION_ROWS_Y[rowIdx];
+      const qCoord = getQuestionCoordinateDef(q.questionNumber);
+      const expRowY = qCoord.y;
       const opts = ["A", "B", "C", "D"] as const;
 
       opts.forEach((opt) => {
-        const cx = colGroup[opt];
         const m = q.metrics[opt];
-        const isWinner = q.answer === opt;
-        const isPartMultiple = q.answer === "MULTIPLE" && m.score >= config.multipleScore;
-        const isCandidate = m.score >= config.minScore;
+        const cx = m ? m.actualX : qCoord[opt];
+        const cy = m ? m.actualY : expRowY;
 
-        if (isWinner) {
-          dCtx.fillStyle = "rgba(16, 185, 129, 0.35)";
-          dCtx.strokeStyle = "#10B981";
-          dCtx.lineWidth = 2.5;
-          dCtx.beginPath();
-          dCtx.arc(cx, cy, config.bubbleRadius, 0, Math.PI * 2);
-          dCtx.fill();
-          dCtx.stroke();
-
-          dCtx.strokeStyle = "#059669";
-          dCtx.lineWidth = 1.5;
-          dCtx.beginPath();
-          dCtx.arc(cx, cy, config.bubbleRadius * config.innerRadiusRatio, 0, Math.PI * 2);
-          dCtx.stroke();
-        } else if (isPartMultiple) {
-          dCtx.fillStyle = "rgba(239, 68, 68, 0.35)";
-          dCtx.strokeStyle = "#EF4444";
-          dCtx.lineWidth = 2.5;
-          dCtx.beginPath();
-          dCtx.arc(cx, cy, config.bubbleRadius, 0, Math.PI * 2);
-          dCtx.fill();
-          dCtx.stroke();
-        } else if (isCandidate) {
-          dCtx.fillStyle = "rgba(245, 158, 11, 0.25)";
-          dCtx.strokeStyle = "#F59E0B";
-          dCtx.lineWidth = 2;
-          dCtx.beginPath();
-          dCtx.arc(cx, cy, config.bubbleRadius, 0, Math.PI * 2);
-          dCtx.fill();
-          dCtx.stroke();
-        } else {
-          dCtx.strokeStyle = "rgba(148, 163, 184, 0.35)";
-          dCtx.lineWidth = 1;
-          dCtx.beginPath();
-          dCtx.arc(cx, cy, config.bubbleRadius, 0, Math.PI * 2);
-          dCtx.stroke();
+        if (q.answer === opt) {
+          dctx.strokeStyle = "#10B981";
+          dctx.fillStyle = "rgba(16, 185, 129, 0.35)";
+          dctx.beginPath();
+          dctx.arc(cx, cy, config.physicalBubbleRadius, 0, Math.PI * 2);
+          dctx.fill();
+          dctx.stroke();
+        } else if (q.answer === "MULTIPLE" && m.score >= config.multipleScore) {
+          dctx.strokeStyle = "#EF4444";
+          dctx.fillStyle = "rgba(239, 68, 68, 0.35)";
+          dctx.beginPath();
+          dctx.arc(cx, cy, config.physicalBubbleRadius, 0, Math.PI * 2);
+          dctx.fill();
+          dctx.stroke();
+        } else if (m.score >= config.minFillScore) {
+          dctx.strokeStyle = "#F59E0B";
+          dctx.fillStyle = "rgba(245, 158, 11, 0.25)";
+          dctx.beginPath();
+          dctx.arc(cx, cy, config.physicalBubbleRadius, 0, Math.PI * 2);
+          dctx.fill();
+          dctx.stroke();
         }
       });
-
-      const labelX = colGroup.A - 52;
-      const tagText = q.isBlank
-        ? `Q${q.questionNumber}: -`
-        : q.isMultiple
-        ? `Q${q.questionNumber}: MULTI`
-        : `Q${q.questionNumber}: ${q.answer} (${Math.round(q.confidence * 100)}%)`;
-
-      dCtx.font = "bold 11px monospace";
-      dCtx.fillStyle = q.isBlank ? "#64748B" : q.isMultiple ? "#EF4444" : "#059669";
-      dCtx.fillText(tagText, labelX, cy + 4);
     });
 
-    debugPreview = debugCanvas.toDataURL("image/jpeg", 0.85);
+    debugPreviewUrl = debugCanvas.toDataURL("image/jpeg", 0.85);
   }
-
-  const finalProcessingTimeMs = Math.round((performance.now() - startTime) * 10) / 10;
 
   return {
     student_lrn: extractedLRN,
@@ -618,11 +667,12 @@ export async function processOMRWithCV(
     },
     answers,
     scan_timestamp: new Date().toISOString(),
-    processing_time_ms: finalProcessingTimeMs,
-    debug_preview: debugPreview,
+    processing_time_ms: processingTimeMs,
+    debug_preview: debugPreviewUrl,
     diagnostic_record: diagnosticRecord,
+    alignment: alignmentMetrics,
     telemetry: {
-      algorithm: "TWO_ZONE_CIRCULAR_RELATIVE_NORMALIZED",
+      algorithm: OMR_ALGORITHM_NAME,
       totalBubblesEvaluated: 12 * 10 + 60 * 4,
       filledCount,
       blankCount,
@@ -630,6 +680,42 @@ export async function processOMRWithCV(
       averageConfidence: avgConfidence,
       alignmentStatus,
       scanId,
+      scanQuality,
     },
   };
 }
+
+/**
+ * Universal Client-Side Entrypoint for Canvas, Image Element, or Base64 string
+ */
+export async function processOMRWithCV(
+  input: HTMLCanvasElement | HTMLImageElement | string,
+  options: CVEngineOptions = {}
+): Promise<OMRScanResult> {
+  if (input instanceof HTMLCanvasElement) {
+    return runClientSideOMRScan(input, options);
+  }
+
+  let img: HTMLImageElement;
+  if (typeof input === "string") {
+    img = new Image();
+    img.crossOrigin = "anonymous";
+    await new Promise((resolve, reject) => {
+      img.onload = resolve;
+      img.onerror = reject;
+      img.src = input;
+    });
+  } else {
+    img = input;
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = img.naturalWidth || img.width;
+  canvas.height = img.naturalHeight || img.height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Could not create canvas context");
+  ctx.drawImage(img, 0, 0);
+
+  return runClientSideOMRScan(canvas, options);
+}
+

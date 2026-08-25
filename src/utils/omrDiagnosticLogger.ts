@@ -1,4 +1,5 @@
 import {
+  AlignmentMetrics,
   DatasetSplit,
   ErrorCategory,
   GroundTruthType,
@@ -20,18 +21,23 @@ export function generateScanId(): string {
 }
 
 /**
- * Calculates image quality metrics from raw/normalized image arrays
+ * Calculates genuine image quality metrics from raw/normalized image arrays
  */
 export function calculateImageQualityMetrics(
   gray: Uint8Array,
   width: number,
   height: number,
-  reprojectionError: number = 0.42
+  reprojectionError: number = 0.0,
+  fiducialConfidence: number = 0.95,
+  sheetCoveragePct: number = 98.5
 ): ImageQualityMetrics {
   // 1. Sharpness: Discrete 3x3 Laplacian operator variance
   let lapSum = 0;
   let lapSumSq = 0;
   let lapCount = 0;
+  let minIntensity = 255;
+  let maxIntensity = 0;
+  let totalIntensitySum = 0;
 
   const step = 4; // Sample every 4th pixel for high speed
   for (let y = step; y < height - step; y += step) {
@@ -47,12 +53,16 @@ export function calculateImageQualityMetrics(
       lapSum += lap;
       lapSumSq += lap * lap;
       lapCount++;
+
+      if (center < minIntensity) minIntensity = center;
+      if (center > maxIntensity) maxIntensity = center;
+      totalIntensitySum += center;
     }
   }
 
   const lapMean = lapCount > 0 ? lapSum / lapCount : 0;
-  const lapVar = lapCount > 0 ? lapSumSq / lapCount - lapMean * lapMean : 0;
-  const sharpness = Math.round(Math.min(100, Math.max(0, lapVar / 12)) * 10) / 10;
+  const lapVar = lapCount > 0 ? Math.max(0, lapSumSq / lapCount - lapMean * lapMean) : 0;
+  const sharpness = Math.round(Math.min(100, Math.max(0, Math.sqrt(lapVar) * 2.5)) * 10) / 10;
 
   // 2. Illumination Uniformity: Quadrant sample variance
   const qW = Math.floor(width / 2);
@@ -79,14 +89,21 @@ export function calculateImageQualityMetrics(
   for (let i = 0; i < 4; i++) {
     devSum += Math.abs(quadMeans[i] - overallMean);
   }
-  const illuminationUniformity = Math.round(Math.max(0, 100 - (devSum / 4) * 1.5) * 10) / 10;
+  const illuminationUniformity = Math.round(Math.max(0, 100 - (devSum / 4) * 1.6) * 10) / 10;
+
+  // 3. Contrast & Exposure
+  const contrast = Math.round(Math.max(0, Math.min(100, ((maxIntensity - minIntensity) / 255) * 100)) * 10) / 10;
+  const avgExposure = lapCount > 0 ? (totalIntensitySum / lapCount) / 255 * 100 : 75;
+  const exposure = Math.round(avgExposure * 10) / 10;
 
   return {
     sharpness,
     illuminationUniformity,
-    sheetCoverage: 98.4,
-    fiducialConfidence: 0.96,
-    homographyReprojectionError: reprojectionError,
+    sheetCoverage: Math.round(sheetCoveragePct * 10) / 10,
+    contrast,
+    exposure,
+    fiducialConfidence: Math.round(fiducialConfidence * 100) / 100,
+    homographyReprojectionError: Math.round(reprojectionError * 100) / 100,
   };
 }
 
@@ -97,7 +114,6 @@ export function evaluateErrorCategory(
   predicted: OptionType,
   groundTruth: GroundTruthType
 ): { omrCorrect: boolean; errorCategory: ErrorCategory } {
-  // Normalize empty / blank
   const normPred = predicted === null ? "-" : predicted;
   const normTruth = groundTruth;
 
@@ -132,7 +148,6 @@ export function evaluateErrorCategory(
     return { omrCorrect: false, errorCategory: "MISSED_MULTIPLE" };
   }
 
-  // Choice A vs B, etc.
   return { omrCorrect: false, errorCategory: "WRONG_CHOICE" };
 }
 
@@ -152,12 +167,12 @@ export function loadDiagnosticRecords(): OMRDiagnosticRecord[] {
 }
 
 /**
- * Save diagnostic records into localStorage
+ * Save diagnostic records to localStorage
  */
 export function saveDiagnosticRecords(records: OMRDiagnosticRecord[]): void {
   try {
-    // Keep up to 200 most recent scan records to prevent localStorage overflow
-    const trimmed = records.slice(-200);
+    // Keep max 50 recent records in local storage to prevent quota overflow
+    const trimmed = records.slice(-50);
     localStorage.setItem(DIAGNOSTIC_STORAGE_KEY, JSON.stringify(trimmed));
   } catch (err) {
     console.error("Failed to save diagnostic logs to localStorage:", err);
@@ -165,71 +180,59 @@ export function saveDiagnosticRecords(records: OMRDiagnosticRecord[]): void {
 }
 
 /**
- * Append or update a diagnostic record
+ * Record a new scan diagnostic log with automatic 70/15/15 dataset partitioning
  */
 export function recordDiagnosticLog(record: OMRDiagnosticRecord): void {
-  const logs = loadDiagnosticRecords();
-  const existingIndex = logs.findIndex((l) => l.scanId === record.scanId);
-  if (existingIndex >= 0) {
-    logs[existingIndex] = record;
-  } else {
-    // Assign dataset split deterministically: 70% Calibration, 15% Validation, 15% Regression
-    if (!record.datasetSplit) {
-      const rand = Math.random();
-      if (rand < 0.7) record.datasetSplit = "CALIBRATION";
-      else if (rand < 0.85) record.datasetSplit = "VALIDATION";
-      else record.datasetSplit = "REGRESSION";
+  const existing = loadDiagnosticRecords();
+
+  if (!record.datasetSplit) {
+    const rand = Math.random();
+    if (rand < 0.7) {
+      record.datasetSplit = "CALIBRATION";
+    } else if (rand < 0.85) {
+      record.datasetSplit = "VALIDATION";
+    } else {
+      record.datasetSplit = "REGRESSION";
     }
-    logs.push(record);
   }
-  saveDiagnosticRecords(logs);
+
+  const updated = [...existing.filter((r) => r.scanId !== record.scanId), record];
+  saveDiagnosticRecords(updated);
 }
 
 /**
- * Attach human ground truth to a specific question in a scan record
+ * Human Ground Truth Annotation update for a question in a recorded scan
  */
 export function annotateGroundTruth(
   scanId: string,
-  questionNumber: number,
+  questionNum: number,
   actualMarked: GroundTruthType,
   notes?: string
 ): OMRDiagnosticRecord | null {
-  const logs = loadDiagnosticRecords();
-  const record = logs.find((l) => l.scanId === scanId);
-  if (!record) return null;
+  const records = loadDiagnosticRecords();
+  const recIndex = records.findIndex((r) => r.scanId === scanId);
+  if (recIndex === -1) return null;
 
-  const qLog = record.questions.find((q) => q.question === questionNumber);
-  if (!qLog) return null;
+  const targetRec = records[recIndex];
+  const qIndex = targetRec.questions.findIndex((q) => q.question === questionNum);
+  if (qIndex === -1) return null;
 
-  const evaluation = evaluateErrorCategory(qLog.predicted, actualMarked);
-
-  qLog.groundTruth = {
+  const q = targetRec.questions[qIndex];
+  q.groundTruth = {
     actualMarked,
     source: "human_verified",
     reviewedAt: new Date().toISOString(),
     notes,
   };
-  qLog.evaluation = evaluation;
 
-  record.groundTruthReviewed = true;
-  record.reviewedAt = new Date().toISOString();
+  q.evaluation = evaluateErrorCategory(q.predicted, actualMarked);
 
-  saveDiagnosticRecords(logs);
-  return record;
-}
+  targetRec.groundTruthReviewed = true;
+  targetRec.reviewedAt = new Date().toISOString();
+  records[recIndex] = targetRec;
 
-/**
- * Export all diagnostic logs as JSON Lines (.jsonl) string
- */
-export function exportDiagnosticJsonLines(records: OMRDiagnosticRecord[]): string {
-  return records.map((r) => JSON.stringify(r)).join("\n");
-}
-
-/**
- * Export all diagnostic logs as standard JSON string
- */
-export function exportDiagnosticJson(records: OMRDiagnosticRecord[]): string {
-  return JSON.stringify(records, null, 2);
+  saveDiagnosticRecords(records);
+  return targetRec;
 }
 
 /**
@@ -237,4 +240,32 @@ export function exportDiagnosticJson(records: OMRDiagnosticRecord[]): string {
  */
 export function clearDiagnosticLogs(): void {
   localStorage.removeItem(DIAGNOSTIC_STORAGE_KEY);
+}
+
+/**
+ * Export complete dataset as JSON
+ */
+export function exportDiagnosticJson(records: OMRDiagnosticRecord[]): void {
+  const jsonStr = JSON.stringify(records, null, 2);
+  const blob = new Blob([jsonStr], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `deped_omr_dataset_${new Date().toISOString().split("T")[0]}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * Export complete dataset as JSONL (JSON Lines)
+ */
+export function exportDiagnosticJsonLines(records: OMRDiagnosticRecord[]): void {
+  const lines = records.map((r) => JSON.stringify(r)).join("\n");
+  const blob = new Blob([lines], { type: "application/x-jsonlines" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `deped_omr_dataset_${new Date().toISOString().split("T")[0]}.jsonl`;
+  a.click();
+  URL.revokeObjectURL(url);
 }

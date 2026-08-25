@@ -1,26 +1,29 @@
-// DepEd Region X 60-Item OMR Scanner - Offline Service Worker
-// Version: omr-scanner-v3-offline
+// DepEd Region X 60-Item OMR Scanner - Standalone PWA Offline Service Worker
+// Version: omr-scanner-v4-pwa
 
-const CACHE_NAME = "omr-scanner-v3-offline";
-const RUNTIME_CACHE_NAME = "omr-scanner-runtime-v3";
+const CACHE_NAME = "omr-scanner-v4-pwa";
+const RUNTIME_CACHE_NAME = "omr-scanner-runtime-v4";
 
 const CORE_STATIC_ASSETS = [
   "/",
   "/index.html",
   "/manifest.json",
+  "/icons/icon-192.png",
+  "/icons/icon-512.png",
+  "/icons/icon-maskable.png",
   "/icons/icon-192.svg",
   "/icons/icon-512.svg",
   "/icons/icon-maskable.svg"
 ];
 
-// Install: Pre-cache the application shell
+// Install: Pre-cache core PWA application shell & icons
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches
       .open(CACHE_NAME)
       .then((cache) => {
         return cache.addAll(CORE_STATIC_ASSETS).catch((err) => {
-          console.warn("[SW] Core asset pre-caching non-fatal notice:", err);
+          console.warn("[PWA SW] Core asset pre-caching notice:", err);
         });
       })
       .then(() => self.skipWaiting())
@@ -38,7 +41,7 @@ self.addEventListener("activate", (event) => {
           cacheNames
             .filter((name) => !currentCaches.includes(name))
             .map((name) => {
-              console.log("[SW] Deleting deprecated cache:", name);
+              console.log("[PWA SW] Deleting deprecated cache:", name);
               return caches.delete(name);
             })
         );
@@ -54,7 +57,7 @@ self.addEventListener("message", (event) => {
   }
 });
 
-// Fetch: Robust Offline Strategy
+// Fetch: Robust Offline & Standalone PWA Strategy
 self.addEventListener("fetch", (event) => {
   const { request } = event;
   const url = new URL(request.url);
@@ -64,7 +67,7 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // 2. Handle HTML navigation requests (Single Page App Fallback)
+  // 2. Handle HTML navigation requests (Single Page App Fallback for Standalone PWA)
   if (request.mode === "navigate") {
     event.respondWith(
       fetch(request)
@@ -83,17 +86,38 @@ self.addEventListener("fetch", (event) => {
           if (cachedNav) {
             return cachedNav;
           }
-          return new Response("Offline - Please connect to the internet to load for the first time.", {
-            status: 503,
-            statusText: "Service Unavailable Offline",
-            headers: { "Content-Type": "text/plain" }
+          return new Response("DepEd Region X OMR Scanner (Offline Mode Active)", {
+            status: 200,
+            statusText: "OK",
+            headers: { "Content-Type": "text/html; charset=utf-8" }
           });
         })
     );
     return;
   }
 
-  // 3. Google Fonts stylesheets & Font Binaries (Cache-First with permanent storage)
+  // 3. Static Icons & Manifest (Cache-First for instant PWA startup)
+  if (url.pathname.startsWith("/icons/") || url.pathname === "/manifest.json") {
+    event.respondWith(
+      caches.match(request).then((cachedResponse) => {
+        if (cachedResponse) {
+          return cachedResponse;
+        }
+        return fetch(request).then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200) {
+            const responseClone = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(request, responseClone);
+            });
+          }
+          return networkResponse;
+        });
+      })
+    );
+    return;
+  }
+
+  // 4. Google Fonts stylesheets & Font Binaries (Cache-First with permanent storage)
   if (url.origin === "https://fonts.googleapis.com" || url.origin === "https://fonts.gstatic.com") {
     event.respondWith(
       caches.match(request).then((cachedResponse) => {
@@ -116,7 +140,7 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // 4. App scripts, styles, images, and static assets (Stale-While-Revalidate with runtime cache)
+  // 5. App scripts, styles, and static assets (Stale-While-Revalidate with runtime cache)
   event.respondWith(
     caches.match(request).then((cachedResponse) => {
       const fetchPromise = fetch(request)
@@ -130,7 +154,6 @@ self.addEventListener("fetch", (event) => {
           return networkResponse;
         })
         .catch(() => {
-          // Return cached response if network fails
           return cachedResponse;
         });
 

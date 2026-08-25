@@ -124,6 +124,22 @@ export default function App() {
     setRosterRecords((prev) => [record, ...prev]);
   };
 
+  // Save scanned sheet as a Master Answer Key
+  const handleSaveAsAnswerKey = (newKey: AnswerKey, makeActive = true) => {
+    setAnswerKeys((prev) => {
+      const idx = prev.findIndex((k) => k.id === newKey.id);
+      if (idx >= 0) {
+        const updated = [...prev];
+        updated[idx] = newKey;
+        return updated;
+      }
+      return [newKey, ...prev];
+    });
+    if (makeActive) {
+      setActiveKeyId(newKey.id);
+    }
+  };
+
   // Select a record from roster to inspect
   const handleSelectRecordFromRoster = (record: ScannedRecord) => {
     setCurrentScanResult(record.scan_result);
@@ -278,6 +294,7 @@ export default function App() {
                 imageSrc={currentImagePreview}
                 activeAnswerKey={activeKey}
                 onSaveToRoster={handleSaveToRoster}
+                onSaveAsAnswerKey={handleSaveAsAnswerKey}
                 onNewScan={handleNewScan}
               />
             )}

@@ -1,4 +1,12 @@
 import { OMRMetadata, OptionType } from "../types";
+import {
+  QUESTION_BLOCKS,
+  QUESTION_ROWS_Y,
+  LRN_COLS_X,
+  LRN_ROWS_Y,
+  REF_HEIGHT,
+  REF_WIDTH,
+} from "./omrConfig";
 
 export interface SheetGenerationOptions {
   lrn: string; // 12 characters (digits 0-9 or ?)
@@ -10,22 +18,7 @@ export interface SheetGenerationOptions {
   examTitle?: string;
 }
 
-export const REF_WIDTH = 1467;
-export const REF_HEIGHT = 2048;
-
-const LRN_COLS_X = [322, 362, 403, 443, 483, 522, 562, 601, 641, 681, 723, 760];
-const LRN_ROWS_Y = [428, 473, 518, 563, 608, 653, 697, 738, 783, 828];
-
-const Q_COLS = [
-  { startItem: 1, endItem: 20, itemX: 350, optX: { A: 392, B: 436, C: 480, D: 524 } },
-  { startItem: 21, endItem: 40, itemX: 630, optX: { A: 673, B: 717, C: 761, D: 807 } },
-  { startItem: 41, endItem: 60, itemX: 910, optX: { A: 951, B: 997, C: 1041, D: 1087 } },
-];
-
-const Q_ROWS_Y = [
-  947, 997, 1046, 1096, 1144, 1193, 1240, 1287, 1338, 1386,
-  1464, 1514, 1563, 1611, 1659, 1708, 1757, 1806, 1854, 1903,
-];
+export { REF_WIDTH, REF_HEIGHT };
 
 /**
  * Generates an ultra-crisp standardized 60-item OMR Answer Sheet onto an HTML Canvas
@@ -218,48 +211,55 @@ export function generateOMRSheetCanvas(
     }
   }
 
-  // 5. 60 Questions Answer Section (3 Columns of 20 Items each)
+  // 5. 60 Questions Answer Section (3 Columns x Top & Bottom Sections)
   const ansBoxTop = 880;
   const ansBoxHeight = 1070;
   ctx.strokeStyle = "#1A1A1A";
   ctx.lineWidth = 2;
   ctx.strokeRect(170, ansBoxTop, 1127, ansBoxHeight);
 
-  // Column header titles
+  // Main Header
   ctx.fillStyle = "#1E293B";
-  ctx.fillRect(170, ansBoxTop, 1127, 36);
+  ctx.fillRect(170, ansBoxTop, 1127, 34);
   ctx.fillStyle = "#FFFFFF";
   ctx.font = "bold 16px sans-serif";
   ctx.textAlign = "center";
-  ctx.fillText("EXAMINATION ITEMS (1 - 60)", width / 2, ansBoxTop + 24);
+  ctx.fillText("EXAMINATION ITEMS (1 - 60)", width / 2, ansBoxTop + 23);
 
   const opts: ("A" | "B" | "C" | "D")[] = ["A", "B", "C", "D"];
+  const itemLabelX = { 1: 350, 2: 630, 3: 910 };
 
-  Q_COLS.forEach((colGroup) => {
-    // Column header for A B C D
+  // Render each of the 6 Question Section Blocks
+  QUESTION_BLOCKS.forEach((block) => {
+    const itemX = itemLabelX[block.column];
+
+    // Column header for A B C D at the top of each block
+    const headerY = block.section === "TOP" ? ansBoxTop + 54 : 1435;
     ctx.fillStyle = "#475569";
-    ctx.font = "bold 14px sans-serif";
+    ctx.font = "bold 13px sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("ITEM", colGroup.itemX, ansBoxTop + 54);
+    ctx.fillText("ITEM", itemX, headerY);
     opts.forEach((opt) => {
-      ctx.fillText(opt, colGroup.optX[opt], ansBoxTop + 54);
+      ctx.fillText(opt, block[opt], headerY);
     });
 
-    for (let rowIdx = 0; rowIdx < 20; rowIdx++) {
-      const qNum = colGroup.startItem + rowIdx;
-      const cy = Q_ROWS_Y[rowIdx];
+    // 10 Rows per block
+    for (let r = 0; r < 10; r++) {
+      const qNum = block.startQ + r;
+      const globalRowIdx = block.startRowIdx + r;
+      const cy = QUESTION_ROWS_Y[globalRowIdx];
       const selected = answers[qNum];
 
       // Item number
       ctx.fillStyle = "#0F172A";
       ctx.font = "bold 15px monospace";
       ctx.textAlign = "right";
-      ctx.fillText(qNum.toString().padStart(2, "0") + ".", colGroup.itemX + 16, cy);
+      ctx.fillText(qNum.toString().padStart(2, "0") + ".", itemX + 16, cy);
 
       // Bubbles A, B, C, D
       opts.forEach((opt) => {
-        const bx = colGroup.optX[opt];
+        const bx = block[opt];
         const isFilled = selected === opt || (selected === "MULTIPLE" && (opt === "A" || opt === "C"));
 
         ctx.beginPath();

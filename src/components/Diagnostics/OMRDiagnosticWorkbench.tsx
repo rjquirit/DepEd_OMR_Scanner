@@ -148,6 +148,8 @@ export function OMRDiagnosticWorkbench() {
         sharpness: 88.4,
         illuminationUniformity: 94.2,
         sheetCoverage: 98.6,
+        contrast: 78.5,
+        exposure: 84.0,
         fiducialConfidence: 0.98,
         homographyReprojectionError: 0.32,
         processingTimeMs: 46.2,
@@ -237,25 +239,11 @@ export function OMRDiagnosticWorkbench() {
   };
 
   const handleExportJson = () => {
-    const json = exportDiagnosticJson(records);
-    const blob = new Blob([json], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `deped_omr_diagnostics_${new Date().toISOString().split("T")[0]}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    exportDiagnosticJson(records);
   };
 
   const handleExportJsonLines = () => {
-    const jsonl = exportDiagnosticJsonLines(records);
-    const blob = new Blob([jsonl], { type: "application/x-ndjson" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `deped_omr_diagnostics_${new Date().toISOString().split("T")[0]}.jsonl`;
-    a.click();
-    URL.revokeObjectURL(url);
+    exportDiagnosticJsonLines(records);
   };
 
   const handleExportErrors = () => {

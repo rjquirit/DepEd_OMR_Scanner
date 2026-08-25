@@ -326,52 +326,76 @@ export function AnswerKeyManager({
             </div>
           </div>
 
-          {/* 60 Questions Answer Grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2.5">
-            {[0, 1, 2, 3].map((colIdx) => {
-              const startItem = colIdx * 15 + 1;
+          {/* 60 Questions Answer Grid (Matching 3-Column Top/Bottom Layout) */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
+            {[
+              {
+                colName: "COLUMN 1",
+                top: { title: "LEFT TOP (Q01 – Q10)", startItem: 1 },
+                bottom: { title: "LEFT BOTTOM (Q31 – Q40)", startItem: 31 },
+              },
+              {
+                colName: "COLUMN 2",
+                top: { title: "CENTER TOP (Q11 – Q20)", startItem: 11 },
+                bottom: { title: "CENTER BOTTOM (Q41 – Q50)", startItem: 41 },
+              },
+              {
+                colName: "COLUMN 3",
+                top: { title: "RIGHT TOP (Q21 – Q30)", startItem: 21 },
+                bottom: { title: "RIGHT BOTTOM (Q51 – Q60)", startItem: 51 },
+              },
+            ].map((col, colIdx) => {
+              const sections = [
+                { title: col.top.title, startItem: col.top.startItem },
+                { title: col.bottom.title, startItem: col.bottom.startItem },
+              ];
+
               return (
-                <div
-                  key={colIdx}
-                  className="bg-[#0D0F12] border border-[#272C33] p-2 space-y-1 rounded-xs"
-                >
-                  <div className="text-[9px] font-bold text-slate-400 pb-1 border-b border-[#272C33] flex justify-between uppercase">
-                    <span>Q{startItem} - Q{startItem + 14}</span>
-                    <span>KEY</span>
-                  </div>
-
-                  {Array.from({ length: 15 }, (_, i) => {
-                    const itemNum = startItem + i;
-                    const selectedOpt = editingKey.keys[itemNum] || "A";
-
-                    return (
-                      <div
-                        key={itemNum}
-                        className="flex items-center justify-between px-1.5 py-0.5 border-b border-slate-800/40"
-                      >
-                        <span className="font-mono text-[10px] text-slate-400">
-                          {itemNum < 10 ? `0${itemNum}` : itemNum}.
-                        </span>
-
-                        <div className="flex items-center space-x-1">
-                          {optionLetters.map((opt) => (
-                            <button
-                              key={opt}
-                              type="button"
-                              onClick={() => handleOptionChange(itemNum, opt)}
-                              className={`w-5 h-5 rounded-xs text-[9px] font-black transition-all ${
-                                selectedOpt === opt
-                                  ? "bg-[#FF7A00] text-black font-black shadow-[0_0_6px_#FF7A00]"
-                                  : "bg-[#1C1F24] text-slate-400 border border-slate-700 hover:border-[#FF7A00]/50"
-                              }`}
-                            >
-                              {opt}
-                            </button>
-                          ))}
-                        </div>
+                <div key={colIdx} className="space-y-2.5">
+                  {sections.map((sec, secIdx) => (
+                    <div
+                      key={secIdx}
+                      className="bg-[#0D0F12] border border-[#272C33] p-2 space-y-1 rounded-xs"
+                    >
+                      <div className="text-[9px] font-bold text-slate-400 pb-1 border-b border-[#272C33] flex justify-between uppercase">
+                        <span>{sec.title}</span>
+                        <span>KEY</span>
                       </div>
-                    );
-                  })}
+
+                      {Array.from({ length: 10 }, (_, i) => {
+                        const itemNum = sec.startItem + i;
+                        const selectedOpt = editingKey.keys[itemNum] || "A";
+
+                        return (
+                          <div
+                            key={itemNum}
+                            className="flex items-center justify-between px-1.5 py-0.5 border-b border-slate-800/40"
+                          >
+                            <span className="font-mono text-[10px] text-slate-400">
+                              {itemNum < 10 ? `0${itemNum}` : itemNum}.
+                            </span>
+
+                            <div className="flex items-center space-x-1">
+                              {optionLetters.map((opt) => (
+                                <button
+                                  key={opt}
+                                  type="button"
+                                  onClick={() => handleOptionChange(itemNum, opt)}
+                                  className={`w-5 h-5 rounded-xs text-[9px] font-black transition-all ${
+                                    selectedOpt === opt
+                                      ? "bg-[#FF7A00] text-black font-black shadow-[0_0_6px_#FF7A00]"
+                                      : "bg-[#1C1F24] text-slate-400 border border-slate-700 hover:border-[#FF7A00]/50"
+                                  }`}
+                                >
+                                  {opt}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))}
                 </div>
               );
             })}

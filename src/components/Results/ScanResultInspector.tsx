@@ -13,17 +13,20 @@ import {
   Terminal,
   Activity,
   Sliders,
+  KeyRound,
 } from "lucide-react";
 import confetti from "canvas-confetti";
 import { AnswerKey, OMRScanResult, OptionType, QuestionDiagnosticLog, ScannedRecord } from "../../types";
 import { gradeScanResult } from "../../utils/grading";
 import { OMRErrorReviewModal } from "../Diagnostics/OMRErrorReviewModal";
+import { SaveAsAnswerKeyModal } from "./SaveAsAnswerKeyModal";
 
 interface ScanResultInspectorProps {
   scanResult: OMRScanResult;
   imageSrc?: string;
   activeAnswerKey: AnswerKey;
   onSaveToRoster: (record: ScannedRecord) => void;
+  onSaveAsAnswerKey?: (key: AnswerKey, makeActive?: boolean) => void;
   onNewScan: () => void;
 }
 
@@ -32,6 +35,7 @@ export function ScanResultInspector({
   imageSrc,
   activeAnswerKey,
   onSaveToRoster,
+  onSaveAsAnswerKey,
   onNewScan,
 }: ScanResultInspectorProps) {
   const [currentResult, setCurrentResult] = useState<OMRScanResult>(scanResult);
@@ -41,6 +45,8 @@ export function ScanResultInspector({
   );
   const [copiedJson, setCopiedJson] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
+  const [savedKeySuccess, setSavedKeySuccess] = useState(false);
+  const [isSaveKeyModalOpen, setIsSaveKeyModalOpen] = useState(false);
   const [zoomLevel, setZoomLevel] = useState(1);
   const [invertView, setInvertView] = useState(false);
   const [inspectingQ, setInspectingQ] = useState<QuestionDiagnosticLog | null>(null);
@@ -128,17 +134,28 @@ export function ScanResultInspector({
 
   // Save student scan to class roster / gradebook
   const handleSaveRecord = () => {
+    const answersMap: Record<number, OptionType> = {};
+    currentResult.answers.forEach((a) => {
+      answersMap[a.item_number] = a.selected_option;
+    });
+
     const newRecord: ScannedRecord = {
       id: "scan-" + Date.now(),
       timestamp: new Date().toISOString(),
       student_lrn: currentResult.student_lrn,
-      student_name: currentResult.metadata.name,
-      section: currentResult.metadata.section,
-      subject: currentResult.metadata.subject,
+      student_name: currentResult.metadata.name || undefined,
+      section: currentResult.metadata.section || undefined,
+      subject: currentResult.metadata.subject || activeAnswerKey.subject,
       score: grading.score,
       total_items: grading.total_items,
       percentage: grading.percentage,
       passed: grading.passed,
+      answers: answersMap,
+      scanned_at: new Date().toISOString(),
+      answer_key_id: activeAnswerKey.id,
+      answer_key_title: activeAnswerKey.title,
+      confidence_avg: currentResult.telemetry?.averageConfidence ? Math.round(currentResult.telemetry.averageConfidence * 100) : 95,
+      diagnostic_scan_id: currentResult.telemetry?.scanId,
       scan_result: currentResult,
       image_preview: imageSrc,
     };
@@ -155,6 +172,20 @@ export function ScanResultInspector({
     }
 
     setTimeout(() => setSavedSuccess(false), 3000);
+  };
+
+  // Save scanned answers as master Answer Key
+  const handleSaveAsKey = (newKey: AnswerKey, makeActive = true) => {
+    if (onSaveAsAnswerKey) {
+      onSaveAsAnswerKey(newKey, makeActive);
+      setSavedKeySuccess(true);
+      confetti({
+        particleCount: 45,
+        spread: 55,
+        origin: { y: 0.6 },
+      });
+      setTimeout(() => setSavedKeySuccess(false), 3500);
+    }
   };
 
   const optionLetters: OptionType[] = ["A", "B", "C", "D"];
@@ -249,11 +280,11 @@ export function ScanResultInspector({
             </div>
 
             {/* Action Buttons */}
-            <div className="flex items-center space-x-2 w-full sm:w-auto">
+            <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
               <button
                 id="save-to-roster-btn"
                 onClick={handleSaveRecord}
-                className={`flex-1 sm:flex-none px-5 py-2.5 text-xs font-black uppercase tracking-wider rounded-xs flex items-center justify-center space-x-1.5 transition-all min-h-[40px] ${
+                className={`flex-1 sm:flex-none px-4 py-2.5 text-xs font-black uppercase tracking-wider rounded-xs flex items-center justify-center space-x-1.5 transition-all min-h-[40px] ${
                   savedSuccess
                     ? "bg-emerald-500 text-black shadow-[0_0_10px_#10B981]"
                     : "bg-[#FF7A00] text-black shadow-[0_0_12px_#FF7A00] active:scale-95 hover:bg-[#FF8C1A]"
@@ -268,6 +299,29 @@ export function ScanResultInspector({
                   <>
                     <Save className="w-3.5 h-3.5" />
                     <span>SAVE_ROSTER</span>
+                  </>
+                )}
+              </button>
+
+              <button
+                id="save-as-answer-key-btn"
+                onClick={() => setIsSaveKeyModalOpen(true)}
+                className={`flex-1 sm:flex-none px-4 py-2.5 text-xs font-black uppercase tracking-wider rounded-xs flex items-center justify-center space-x-1.5 transition-all min-h-[40px] border ${
+                  savedKeySuccess
+                    ? "bg-emerald-500 text-black border-emerald-400 shadow-[0_0_10px_#10B981]"
+                    : "bg-[#1C1F24] hover:bg-[#272C33] text-amber-400 hover:text-amber-300 border-amber-500/50 shadow-[0_0_8px_rgba(245,158,11,0.15)] active:scale-95"
+                }`}
+                title="Save scanned bubble sheet as a Master Answer Key"
+              >
+                {savedKeySuccess ? (
+                  <>
+                    <Check className="w-3.5 h-3.5" />
+                    <span>SAVED_AS_KEY</span>
+                  </>
+                ) : (
+                  <>
+                    <KeyRound className="w-3.5 h-3.5 text-amber-400" />
+                    <span>SAVE_ANSWER_KEYS</span>
                   </>
                 )}
               </button>
@@ -511,106 +565,128 @@ export function ScanResultInspector({
                   <span className="text-[#FF7A00] font-bold">60 / 60 PARSED</span>
                 </div>
 
-                {/* 4-Column Technical Grid */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2.5 flex-1">
-                  {[0, 1, 2, 3].map((colIdx) => {
-                    const startItem = colIdx * 15 + 1;
-                    const endItem = startItem + 14;
+                {/* 3-Column Top & Bottom Technical Grid (Matching Physical Answer Sheet Layout) */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 flex-1">
+                  {[
+                    {
+                      colName: "COLUMN 1",
+                      top: { title: "LEFT TOP (Q01 – Q10)", startItem: 1 },
+                      bottom: { title: "LEFT BOTTOM (Q31 – Q40)", startItem: 31 },
+                    },
+                    {
+                      colName: "COLUMN 2",
+                      top: { title: "CENTER TOP (Q11 – Q20)", startItem: 11 },
+                      bottom: { title: "CENTER BOTTOM (Q41 – Q50)", startItem: 41 },
+                    },
+                    {
+                      colName: "COLUMN 3",
+                      top: { title: "RIGHT TOP (Q21 – Q30)", startItem: 21 },
+                      bottom: { title: "RIGHT BOTTOM (Q51 – Q60)", startItem: 51 },
+                    },
+                  ].map((col, colIdx) => {
+                    const sections = [
+                      { title: col.top.title, startItem: col.top.startItem },
+                      { title: col.bottom.title, startItem: col.bottom.startItem },
+                    ];
 
                     return (
-                      <div
-                        key={colIdx}
-                        className="bg-[#0D0F12] border border-[#272C33] p-2 space-y-1 rounded-xs"
-                      >
-                        <div className="text-[9px] font-bold text-slate-400 pb-1 border-b border-[#272C33] flex justify-between uppercase">
-                          <span>Q{startItem} – Q{endItem}</span>
-                          <span>A B C D</span>
-                        </div>
-
-                        {Array.from({ length: 15 }, (_, i) => {
-                          const itemNum = startItem + i;
-                          const ansObj = currentResult.answers.find((a) => a.item_number === itemNum);
-                          const selected = ansObj?.selected_option || null;
-                          const gradingItem = grading.items.find((g) => g.item_number === itemNum);
-
-                          const isCorrect = gradingItem?.is_correct;
-                          const isWrong = gradingItem?.status === "incorrect";
-                          const isMultiple = selected === "MULTIPLE";
-                          const isBlank = selected === null;
-
-                          return (
-                            <div
-                              key={itemNum}
-                              className={`flex items-center justify-between px-1.5 py-0.5 border-b border-slate-800/40 transition-colors ${
-                                isCorrect
-                                  ? "bg-emerald-950/25"
-                                  : isWrong
-                                  ? "bg-rose-950/25"
-                                  : isMultiple || isBlank
-                                  ? "bg-amber-950/20"
-                                  : ""
-                              }`}
-                            >
-                              {/* Item Number */}
-                              <div className="flex items-center space-x-1 min-w-[32px]">
-                                <span className="font-mono text-[10px] text-slate-400">
-                                  {itemNum < 10 ? `0${itemNum}` : itemNum}.
-                                </span>
-                                {isCorrect && <span className="text-[9px] text-emerald-400 font-black">✓</span>}
-                                {isWrong && <span className="text-[9px] text-rose-400 font-black">✕</span>}
-                              </div>
-
-                              {/* A, B, C, D Bubble Buttons */}
-                              <div className="flex items-center space-x-1">
-                                {optionLetters.map((opt) => {
-                                  const isOptionSelected = selected === opt;
-                                  const isKeyAnswer = gradingItem?.correct_answer === opt;
-
-                                  return (
-                                    <button
-                                      key={opt}
-                                      onClick={() => handleAnswerOptionSelect(itemNum, opt)}
-                                      className={`w-5 h-5 rounded-xs text-[9px] font-black transition-all flex items-center justify-center ${
-                                        isOptionSelected
-                                          ? isCorrect
-                                            ? "bg-emerald-500 text-black font-black shadow-[0_0_6px_#10B981]"
-                                            : "bg-[#FF7A00] text-black font-black shadow-[0_0_6px_#FF7A00]"
-                                          : isKeyAnswer && isWrong
-                                          ? "bg-emerald-950 text-emerald-300 border border-emerald-500"
-                                          : "bg-[#1C1F24] text-slate-400 border border-slate-700 hover:border-[#FF7A00]/60"
-                                      }`}
-                                    >
-                                      {opt}
-                                    </button>
-                                  );
-                                })}
-
-                                {isMultiple && (
-                                  <span className="px-1 text-[8px] font-bold bg-amber-500 text-black rounded-xs">
-                                    MULTI
-                                  </span>
-                                )}
-
-                                {/* Diagnostic Inspection Button */}
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const diag =
-                                      ansObj?.diagnostic ||
-                                      currentResult.diagnostic_record?.questions.find((q) => q.question === itemNum);
-                                    if (diag) {
-                                      setInspectingQ(diag);
-                                    }
-                                  }}
-                                  className="p-0.5 text-slate-500 hover:text-[#FF7A00] transition-colors"
-                                  title={`Inspect CV features & Ground Truth for Q${itemNum}`}
-                                >
-                                  <Sliders className="w-3 h-3" />
-                                </button>
-                              </div>
+                      <div key={colIdx} className="space-y-2.5">
+                        {sections.map((sec, secIdx) => (
+                          <div
+                            key={secIdx}
+                            className="bg-[#0D0F12] border border-[#272C33] p-2 space-y-1 rounded-xs"
+                          >
+                            <div className="text-[9px] font-bold text-slate-400 pb-1 border-b border-[#272C33] flex justify-between uppercase">
+                              <span>{sec.title}</span>
+                              <span>A B C D</span>
                             </div>
-                          );
-                        })}
+
+                            {Array.from({ length: 10 }, (_, i) => {
+                              const itemNum = sec.startItem + i;
+                              const ansObj = currentResult.answers.find((a) => a.item_number === itemNum);
+                              const selected = ansObj?.selected_option || null;
+                              const gradingItem = grading.items.find((g) => g.item_number === itemNum);
+
+                              const isCorrect = gradingItem?.is_correct;
+                              const isWrong = gradingItem?.status === "incorrect";
+                              const isMultiple = selected === "MULTIPLE";
+                              const isBlank = selected === null;
+
+                              return (
+                                <div
+                                  key={itemNum}
+                                  className={`flex items-center justify-between px-1.5 py-0.5 border-b border-slate-800/40 transition-colors ${
+                                    isCorrect
+                                      ? "bg-emerald-950/25"
+                                      : isWrong
+                                      ? "bg-rose-950/25"
+                                      : isMultiple || isBlank
+                                      ? "bg-amber-950/20"
+                                      : ""
+                                  }`}
+                                >
+                                  {/* Item Number */}
+                                  <div className="flex items-center space-x-1 min-w-[32px]">
+                                    <span className="font-mono text-[10px] text-slate-400">
+                                      {itemNum < 10 ? `0${itemNum}` : itemNum}.
+                                    </span>
+                                    {isCorrect && <span className="text-[9px] text-emerald-400 font-black">✓</span>}
+                                    {isWrong && <span className="text-[9px] text-rose-400 font-black">✕</span>}
+                                  </div>
+
+                                  {/* A, B, C, D Bubble Buttons */}
+                                  <div className="flex items-center space-x-1">
+                                    {optionLetters.map((opt) => {
+                                      const isOptionSelected = selected === opt;
+                                      const isKeyAnswer = gradingItem?.correct_answer === opt;
+
+                                      return (
+                                        <button
+                                          key={opt}
+                                          onClick={() => handleAnswerOptionSelect(itemNum, opt)}
+                                          className={`w-5 h-5 rounded-xs text-[9px] font-black transition-all flex items-center justify-center ${
+                                            isOptionSelected
+                                              ? isCorrect
+                                                ? "bg-emerald-500 text-black font-black shadow-[0_0_6px_#10B981]"
+                                                : "bg-[#FF7A00] text-black font-black shadow-[0_0_6px_#FF7A00]"
+                                              : isKeyAnswer && isWrong
+                                              ? "bg-emerald-950 text-emerald-300 border border-emerald-500"
+                                              : "bg-[#1C1F24] text-slate-400 border border-slate-700 hover:border-[#FF7A00]/60"
+                                          }`}
+                                        >
+                                          {opt}
+                                        </button>
+                                      );
+                                    })}
+
+                                    {isMultiple && (
+                                      <span className="px-1 text-[8px] font-bold bg-amber-500 text-black rounded-xs">
+                                        MULTI
+                                      </span>
+                                    )}
+
+                                    {/* Diagnostic Inspection Button */}
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const diag =
+                                          ansObj?.diagnostic ||
+                                          currentResult.diagnostic_record?.questions.find((q) => q.question === itemNum);
+                                        if (diag) {
+                                          setInspectingQ(diag);
+                                        }
+                                      }}
+                                      className="p-0.5 text-slate-500 hover:text-[#FF7A00] transition-colors"
+                                      title={`Inspect CV features & Ground Truth for Q${itemNum}`}
+                                    >
+                                      <Sliders className="w-3 h-3" />
+                                    </button>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ))}
                       </div>
                     );
                   })}
@@ -751,6 +827,14 @@ export function ScanResultInspector({
           }}
         />
       )}
+
+      {/* Save As Answer Key Modal */}
+      <SaveAsAnswerKeyModal
+        isOpen={isSaveKeyModalOpen}
+        onClose={() => setIsSaveKeyModalOpen(false)}
+        scanResult={currentResult}
+        onSaveKey={handleSaveAsKey}
+      />
     </div>
   );
 }

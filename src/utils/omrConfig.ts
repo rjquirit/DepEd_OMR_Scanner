@@ -71,8 +71,8 @@ export const DEFAULT_OMR_CONFIG: OMRConfig = {
   lrnRingInnerRadius: 10.0,
   lrnRingOuterRadius: 13.0,
 
-  centerSearchRadiusPx: 5,
-  maxCenterOffsetPx: 6.0,
+  centerSearchRadiusPx: 12,
+  maxCenterOffsetPx: 14.0,
 
   adaptiveOffsetMin: 18.0,
   adaptiveOffsetRatio: 0.12,
@@ -104,9 +104,9 @@ export const TARGET_FIDUCIALS = {
   bl: { x: 110.0, y: 1928.0 },
 };
 
-// 12-Digit LRN Grid Columns and 10 Digit Rows (0 to 9) - Location: Top-Left area
+// 12-Digit LRN Grid Columns and 10 Digit Rows (0 to 9) - Calibrated for high-precision alignment
 export const LRN_COLS_X = [322, 362, 403, 443, 483, 522, 562, 601, 641, 681, 723, 760];
-export const LRN_ROWS_Y = [428, 473, 518, 563, 608, 653, 697, 738, 783, 828];
+export const LRN_ROWS_Y = [428, 473, 518, 563, 608, 653, 697, 742, 788, 834];
 
 // ============================================================================
 // 60 Examination Items (3 Columns x Top & Bottom Sections)
@@ -126,8 +126,10 @@ export const QUESTION_COLS_X = {
 };
 
 export const QUESTION_ROWS_Y = [
-  947, 997, 1046, 1096, 1144, 1193, 1240, 1287, 1338, 1386, // TOP Section (Rows 0 to 9)
-  1464, 1514, 1563, 1611, 1659, 1708, 1757, 1806, 1854, 1903, // BOTTOM Section (Rows 10 to 19)
+  // TOP Section (Rows 0 to 9: Q01-Q30)
+  947, 997, 1046, 1096, 1144, 1193, 1240, 1287, 1338, 1386,
+  // BOTTOM Section (Rows 10 to 19: Q31-Q60) - Calibrated to match physical sheet spacing
+  1478, 1528, 1577, 1625, 1673, 1722, 1771, 1820, 1868, 1918,
 ];
 
 export interface QuestionBlockDef {

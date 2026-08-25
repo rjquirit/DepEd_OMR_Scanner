@@ -58,8 +58,8 @@ struct OMRConfig {
     double lrnRingOuterRadius = 13.0;
 
     // Constrained Center Refinement
-    int centerSearchRadiusPx = 5;
-    double maxCenterOffsetPx = 6.0;
+    int centerSearchRadiusPx = 12;
+    double maxCenterOffsetPx = 14.0;
 
     // Adaptive Threshold Offsets
     double adaptiveOffsetMin = 18.0;
@@ -94,7 +94,7 @@ const cv::Point2f TARGET_BL(110.0f, 1928.0f);
 
 // 12-Digit Student LRN Coordinates
 const std::vector<int> LRN_COLS_X = {322, 362, 403, 443, 483, 522, 562, 601, 641, 681, 723, 760};
-const std::vector<int> LRN_ROWS_Y = {428, 473, 518, 563, 608, 653, 697, 738, 783, 828};
+const std::vector<int> LRN_ROWS_Y = {428, 473, 518, 563, 608, 653, 697, 742, 788, 834};
 
 // 60-Item Answer Section (3 Columns x Top & Bottom Sections)
 struct QuestionBlock {
@@ -119,8 +119,10 @@ const std::vector<QuestionBlock> QUESTION_BLOCKS = {
 };
 
 const std::vector<int> QUESTION_ROWS_Y = {
+    // TOP Section (Rows 0 to 9: Q01-Q30)
     947, 997, 1046, 1096, 1144, 1193, 1240, 1287, 1338, 1386,
-    1464, 1514, 1563, 1611, 1659, 1708, 1757, 1806, 1854, 1903
+    // BOTTOM Section (Rows 10 to 19: Q31-Q60)
+    1478, 1528, 1577, 1625, 1673, 1722, 1771, 1820, 1868, 1918
 };
 
 // ============================================================================

@@ -37,15 +37,17 @@ Perspective homography aligns the four outer corner black square fiducials ($43 
 
 ### 12-Digit Learner Reference Number (LRN) Grid
 - **Columns (12 digits)**: `X = [322, 362, 403, 443, 483, 522, 562, 601, 641, 681, 723, 760]`
-- **Rows (0 through 9)**: `Y = [428, 473, 518, 563, 608, 653, 697, 738, 783, 828]`
+- **Rows (0 through 9)**: `Y = [428, 473, 518, 563, 608, 653, 697, 742, 788, 834]`
 - **Physical Bubble Radius**: `13.5 px`
 - **Core Radius**: `6.0 px`, **Ring Inner/Outer**: `10.0 / 13.0 px`
 
-### 60 Questions Grid (3 Columns $\times$ 20 Rows)
-- **Column 1 (Q1 – Q20)**: `A: 392, B: 436, C: 480, D: 524`
-- **Column 2 (Q21 – Q40)**: `A: 673, B: 717, C: 761, D: 807`
-- **Column 3 (Q41 – Q60)**: `A: 951, B: 997, C: 1041, D: 1087`
-- **Rows (1 – 20)**: `Y = [947, 997, 1046, 1096, 1144, 1193, 1240, 1287, 1338, 1386, 1464, 1514, 1563, 1611, 1659, 1708, 1757, 1806, 1854, 1903]`
+### 60 Questions Grid (3 Columns $\times$ Top & Bottom Sections)
+- **Top Section (Rows 0–9)**: `Q01–Q10` (Col 1), `Q11–Q20` (Col 2), `Q21–Q30` (Col 3)
+- **Bottom Section (Rows 10–19)**: `Q31–Q40` (Col 1), `Q41–Q50` (Col 2), `Q51–Q60` (Col 3)
+- **Column 1**: `A: 392, B: 436, C: 480, D: 524`
+- **Column 2**: `A: 673, B: 717, C: 761, D: 807`
+- **Column 3**: `A: 951, B: 997, C: 1041, D: 1087`
+- **Rows (1 – 20)**: `Y = [947, 997, 1046, 1096, 1144, 1193, 1240, 1287, 1338, 1386, 1478, 1528, 1577, 1625, 1673, 1722, 1771, 1820, 1868, 1918]`
 - **Physical Bubble Radius**: `15.0 px`
 - **Core Radius**: `7.5 px`, **Ring Inner/Outer**: `12.0 / 15.0 px`, **Paper Annulus Inner/Outer**: `18.0 / 22.0 px`
 
@@ -71,8 +73,8 @@ export interface OMRConfig {
   lrnRingInnerRadius: 10.0;
   lrnRingOuterRadius: 13.0;
 
-  centerSearchRadiusPx: 5;
-  maxCenterOffsetPx: 6.0;
+  centerSearchRadiusPx: 12;
+  maxCenterOffsetPx: 14.0;
 
   adaptiveOffsetMin: 18.0;
   adaptiveOffsetRatio: 0.12;

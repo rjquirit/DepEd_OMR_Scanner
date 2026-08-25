@@ -61,14 +61,19 @@ export function usePWA(): PWAState {
 
   const installApp = async (): Promise<boolean> => {
     if (deferredPrompt) {
-      deferredPrompt.prompt();
-      const choiceResult = await deferredPrompt.userChoice;
-      if (choiceResult.outcome === "accepted") {
-        setIsInstalled(true);
-        setDeferredPrompt(null);
-        return true;
+      try {
+        await deferredPrompt.prompt();
+        const choiceResult = await deferredPrompt.userChoice;
+        if (choiceResult && choiceResult.outcome === "accepted") {
+          setIsInstalled(true);
+          setDeferredPrompt(null);
+          return true;
+        }
+        return false;
+      } catch (err) {
+        console.warn("PWA Prompt error:", err);
+        return false;
       }
-      return false;
     }
     return false;
   };

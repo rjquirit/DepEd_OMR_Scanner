@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Camera, Upload, AlertCircle, Loader2 } from "lucide-react";
+import { Camera, Upload, AlertCircle, Loader2, Download, Smartphone, Sparkles } from "lucide-react";
 import { Navbar } from "./components/Navbar";
 import { MobileBottomNav } from "./components/MobileBottomNav";
 import { CameraViewfinder } from "./components/Scanner/CameraViewfinder";
@@ -9,15 +9,21 @@ import { AnswerKeyManager } from "./components/AnswerKeys/AnswerKeyManager";
 import { ClassGradebook } from "./components/Roster/ClassGradebook";
 import { PrintableOMRGenerator } from "./components/PrintableSheet/PrintableOMRGenerator";
 import { OMRGuideModal } from "./components/Help/OMRGuideModal";
+import { PWAInstallModal } from "./components/PWA/PWAInstallModal";
 import { AnswerKey, OMRScanResult, ScannedRecord } from "./types";
 import { DEFAULT_ANSWER_KEY } from "./utils/grading";
 import { processOMRWithCV } from "./utils/omrCvEngine";
+import { usePWA } from "./utils/usePWA";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<"scanner" | "keys" | "roster" | "generator" | "guide">("scanner");
   const [scanMode, setScanMode] = useState<"camera" | "upload">("upload");
   const [isProcessing, setIsProcessing] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
+  const [isPWAOpen, setIsPWAOpen] = useState(false);
+
+  // Progressive Web App State Hook
+  const pwa = usePWA();
 
   // Active Scanned Result & Image
   const [currentScanResult, setCurrentScanResult] = useState<OMRScanResult | null>(null);
@@ -147,6 +153,8 @@ export default function App() {
         setActiveTab={setActiveTab}
         rosterCount={rosterRecords.length}
         hasActiveKey={Boolean(activeKey)}
+        pwa={pwa}
+        onOpenPWAInstall={() => setIsPWAOpen(true)}
       />
 
       {/* Main Content Area */}
@@ -173,33 +181,47 @@ export default function App() {
                     </p>
                   </div>
 
-                  {/* Camera vs Upload Switcher */}
-                  <div className="flex items-center space-x-1 bg-[#14171A] p-1 border border-[#272C33] self-start sm:self-auto rounded-xs">
-                    <button
-                      id="mode-upload-btn"
-                      onClick={() => setScanMode("upload")}
-                      className={`flex items-center space-x-2 px-3 py-1.5 text-xs font-black font-mono uppercase tracking-wider transition-all rounded-xs ${
-                        scanMode === "upload"
-                          ? "bg-[#FF7A00] text-black shadow-[0_0_8px_rgba(255,122,0,0.4)]"
-                          : "text-slate-400 hover:text-white"
-                      }`}
-                    >
-                      <Upload className="w-3.5 h-3.5" />
-                      <span>FILE_UPLOAD</span>
-                    </button>
+                  {/* Mode Switcher & PWA Quick Install Button */}
+                  <div className="flex items-center flex-wrap gap-2">
+                    {!pwa.isInstalled && (
+                      <button
+                        id="scanner-install-pwa-btn"
+                        onClick={() => setIsPWAOpen(true)}
+                        className="flex items-center space-x-2 px-3 py-1.5 text-xs font-black font-mono uppercase tracking-wider bg-[#FF7A00]/15 text-[#FF7A00] hover:bg-[#FF7A00] hover:text-black border border-[#FF7A00]/60 rounded-xs shadow-[0_0_10px_rgba(255,122,0,0.2)] transition-all"
+                        title="Install app for offline scanning and faster camera access"
+                      >
+                        <Download className="w-3.5 h-3.5 animate-bounce" />
+                        <span>INSTALL_APP</span>
+                      </button>
+                    )}
 
-                    <button
-                      id="mode-camera-btn"
-                      onClick={() => setScanMode("camera")}
-                      className={`flex items-center space-x-2 px-3 py-1.5 text-xs font-black font-mono uppercase tracking-wider transition-all rounded-xs ${
-                        scanMode === "camera"
-                          ? "bg-[#FF7A00] text-black shadow-[0_0_8px_rgba(255,122,0,0.4)]"
-                          : "text-slate-400 hover:text-white"
-                      }`}
-                    >
-                      <Camera className="w-3.5 h-3.5" />
-                      <span>LIVE_CAM</span>
-                    </button>
+                    <div className="flex items-center space-x-1 bg-[#14171A] p-1 border border-[#272C33] self-start sm:self-auto rounded-xs">
+                      <button
+                        id="mode-upload-btn"
+                        onClick={() => setScanMode("upload")}
+                        className={`flex items-center space-x-2 px-3 py-1.5 text-xs font-black font-mono uppercase tracking-wider transition-all rounded-xs ${
+                          scanMode === "upload"
+                            ? "bg-[#FF7A00] text-black shadow-[0_0_8px_rgba(255,122,0,0.4)]"
+                            : "text-slate-400 hover:text-white"
+                        }`}
+                      >
+                        <Upload className="w-3.5 h-3.5" />
+                        <span>FILE_UPLOAD</span>
+                      </button>
+
+                      <button
+                        id="mode-camera-btn"
+                        onClick={() => setScanMode("camera")}
+                        className={`flex items-center space-x-2 px-3 py-1.5 text-xs font-black font-mono uppercase tracking-wider transition-all rounded-xs ${
+                          scanMode === "camera"
+                            ? "bg-[#FF7A00] text-black shadow-[0_0_8px_rgba(255,122,0,0.4)]"
+                            : "text-slate-400 hover:text-white"
+                        }`}
+                      >
+                        <Camera className="w-3.5 h-3.5" />
+                        <span>LIVE_CAM</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
 
@@ -316,6 +338,8 @@ export default function App() {
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         rosterCount={rosterRecords.length}
+        pwa={pwa}
+        onOpenPWAInstall={() => setIsPWAOpen(true)}
       />
 
       {/* Geometric Balance HUD Footer */}
@@ -327,7 +351,16 @@ export default function App() {
           <div className="text-slate-600">|</div>
           <div>STATUS: <span className="text-emerald-400 font-bold">READY</span></div>
           <div className="text-slate-600">|</div>
-          <div>PWA: <span className="text-[#FF7A00] font-bold">ENABLED</span></div>
+          <button
+            onClick={() => setIsPWAOpen(true)}
+            className="hover:text-white transition-colors cursor-pointer flex items-center gap-1.5"
+            title="Click to view PWA installation status"
+          >
+            <span>PWA:</span>
+            <span className="text-[#FF7A00] font-bold underline decoration-dotted">
+              {pwa.isInstalled ? "INSTALLED" : "READY_TO_INSTALL"}
+            </span>
+          </button>
         </div>
 
         <div className="flex-1 h-1 bg-slate-800 rounded-full overflow-hidden max-w-md hidden md:block">
@@ -339,6 +372,13 @@ export default function App() {
           <span>TANGERINE_THEME: ACTIVE</span>
         </div>
       </footer>
+
+      {/* PWA Install Modal */}
+      <PWAInstallModal
+        pwa={pwa}
+        isOpen={isPWAOpen}
+        onClose={() => setIsPWAOpen(false)}
+      />
     </div>
   );
 }

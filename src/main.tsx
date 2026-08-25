@@ -19,17 +19,26 @@ if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
 
 // Gracefully suppress benign Vite HMR WebSocket connection events in the preview container
 if (typeof window !== 'undefined') {
+  const origConsoleError = console.error;
+  console.error = (...args: any[]) => {
+    const text = args.map(a => (a && (a.message || a.stack || String(a))) || '').join(' ');
+    if (text.includes('WebSocket') || text.includes('websocket') || text.includes('[vite]')) {
+      return;
+    }
+    origConsoleError.apply(console, args);
+  };
+
   window.addEventListener('unhandledrejection', (event) => {
     const reasonStr = event?.reason?.message || event?.reason?.toString?.() || '';
-    if (reasonStr.includes('WebSocket') || reasonStr.includes('websocket')) {
+    if (reasonStr.includes('WebSocket') || reasonStr.includes('websocket') || reasonStr.includes('[vite]')) {
       event.preventDefault();
       event.stopImmediatePropagation();
     }
   });
 
   window.addEventListener('error', (event) => {
-    const msg = event?.message || '';
-    if (msg.includes('WebSocket') || msg.includes('websocket')) {
+    const msg = event?.message || (event?.error && event.error.message) || '';
+    if (msg.includes('WebSocket') || msg.includes('websocket') || msg.includes('[vite]')) {
       event.preventDefault();
       event.stopImmediatePropagation();
     }

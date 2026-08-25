@@ -3,21 +3,45 @@
   <head>
     <meta charset="UTF-8" />
     <script>
-      // Early handler to prevent WebSocket/HMR disconnect noise in preview
-      window.addEventListener('unhandledrejection', function (e) {
-        var reason = (e && e.reason && (e.reason.message || e.reason.stack || '' + e.reason)) || '';
-        if (reason.indexOf('WebSocket') !== -1 || reason.indexOf('websocket') !== -1) {
-          e.preventDefault();
-          e.stopImmediatePropagation();
-        }
-      });
-      window.addEventListener('error', function (e) {
-        var msg = (e && (e.message || '')) || '';
-        if (msg.indexOf('WebSocket') !== -1 || msg.indexOf('websocket') !== -1) {
-          e.preventDefault();
-          e.stopImmediatePropagation();
-        }
-      });
+      (function () {
+        // Intercept console.error and console.warn to suppress benign Vite HMR websocket reconnection noise
+        var origConsoleError = console.error;
+        console.error = function () {
+          var args = Array.prototype.slice.call(arguments);
+          var str = args.map(function (a) { return (a && (a.message || a.stack || '' + a)) || ''; }).join(' ');
+          if (str.indexOf('WebSocket') !== -1 || str.indexOf('websocket') !== -1 || str.indexOf('[vite]') !== -1) {
+            return;
+          }
+          return origConsoleError.apply(console, arguments);
+        };
+
+        var origConsoleWarn = console.warn;
+        console.warn = function () {
+          var args = Array.prototype.slice.call(arguments);
+          var str = args.map(function (a) { return (a && (a.message || a.stack || '' + a)) || ''; }).join(' ');
+          if (str.indexOf('WebSocket') !== -1 || str.indexOf('websocket') !== -1 || str.indexOf('[vite]') !== -1) {
+            return;
+          }
+          return origConsoleWarn.apply(console, arguments);
+        };
+
+        // Suppress unhandled websocket error events in sandboxed preview iframe
+        window.addEventListener('unhandledrejection', function (e) {
+          var reason = (e && e.reason && (e.reason.message || e.reason.stack || '' + e.reason)) || '';
+          if (reason.indexOf('WebSocket') !== -1 || reason.indexOf('websocket') !== -1 || reason.indexOf('[vite]') !== -1) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+          }
+        }, true);
+
+        window.addEventListener('error', function (e) {
+          var msg = (e && (e.message || (e.error && e.error.message) || '')) || '';
+          if (msg.indexOf('WebSocket') !== -1 || msg.indexOf('websocket') !== -1 || msg.indexOf('[vite]') !== -1) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+          }
+        }, true);
+      })();
     </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>OMR SCANNER // TANGERINE ORANGE EDITION</title>

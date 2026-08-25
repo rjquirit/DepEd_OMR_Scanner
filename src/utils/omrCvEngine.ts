@@ -1,37 +1,26 @@
-import { OMRAnswer, OMRMetadata, OMRScanResult, OptionType } from "../types";
+import { OMRAnswer, OMRScanResult, OptionType } from "../types";
+import {
+  DEFAULT_OMR_CONFIG,
+  LRN_COLS_X,
+  LRN_ROWS_Y,
+  OMRConfig,
+  QUESTION_COLUMNS,
+  QUESTION_ROWS_Y,
+  REF_HEIGHT,
+  REF_WIDTH,
+  TARGET_FIDUCIALS,
+} from "./omrConfig";
+import {
+  analyzeBubble,
+  classifyDigitColumn,
+  classifyQuestion,
+  DigitClassification,
+  QuestionClassification,
+} from "./omrMeasurementCore";
 
 export interface CVEngineOptions {
-  fillThreshold?: number;
-  multipleThresholdRatio?: number;
-  blankThreshold?: number;
-  debugOverlay?: boolean;
+  customConfig?: Partial<OMRConfig>;
 }
-
-export interface BubbleMeasurement {
-  x: number;
-  y: number;
-  radius: number;
-  meanGray: number;
-  innerMeanGray: number;
-  fillRatio: number;
-  darkness: number;
-  innerDarkness: number;
-  score: number;
-  isFilled: boolean;
-}
-
-export interface OMRDetailedTelemetry {
-  processingTimeMs: number;
-  algorithm: string;
-  alignment: "FIDUCIAL_CALIBRATED" | "BOUNDS_ALIGNED" | "DIRECT_MATRIX";
-  totalBubblesEvaluated: number;
-  averageFillConfidence: number;
-  lrnFillMetrics: { column: number; digit: number; fillRatio: number; confidence: number }[];
-  itemFillMetrics: { item: number; option: string; fillRatio: number }[];
-}
-
-export const REF_WIDTH = 1467;
-export const REF_HEIGHT = 2048;
 
 interface Point {
   x: number;
@@ -305,11 +294,15 @@ function detectFiducialsAccurately(
   };
 }
 
+/**
+ * Client-Side In-Browser Computer Vision OMR Engine
+ */
 export async function processOMRWithCV(
   imageSource: HTMLImageElement | HTMLCanvasElement | ImageBitmap | ImageData,
-  _options: CVEngineOptions = {}
+  options: CVEngineOptions = {}
 ): Promise<OMRScanResult> {
   const startTime = performance.now();
+  const config: OMRConfig = { ...DEFAULT_OMR_CONFIG, ...options.customConfig };
 
   let srcW = 1600;
   let srcH = 2200;
@@ -350,11 +343,7 @@ export async function processOMRWithCV(
 
   const fiducials = detectFiducialsAccurately(rawGray, srcW, srcH);
   let normalizedGray: Uint8Array;
-
-  const targetTL: Point = { x: 110, y: 252 };
-  const targetTR: Point = { x: 1355, y: 252 };
-  const targetBR: Point = { x: 1355, y: 1928 };
-  const targetBL: Point = { x: 110, y: 1928 };
+  let alignmentStatus = "FIDUCIAL_PERSPECTIVE_LOCKED";
 
   if (fiducials) {
     normalizedGray = warpPerspectiveGrayscale(
@@ -364,9 +353,10 @@ export async function processOMRWithCV(
       REF_WIDTH,
       REF_HEIGHT,
       [fiducials.tl, fiducials.tr, fiducials.br, fiducials.bl],
-      [targetTL, targetTR, targetBR, targetBL]
+      [TARGET_FIDUCIALS.tl, TARGET_FIDUCIALS.tr, TARGET_FIDUCIALS.br, TARGET_FIDUCIALS.bl]
     );
   } else {
+    alignmentStatus = "RESIZED_FALLBACK";
     const resizeCanvas = document.createElement("canvas");
     resizeCanvas.width = REF_WIDTH;
     resizeCanvas.height = REF_HEIGHT;
@@ -383,183 +373,197 @@ export async function processOMRWithCV(
     }
   }
 
-  let minLum = 255;
-  let maxLum = 0;
-  for (let i = 0; i < REF_WIDTH * REF_HEIGHT; i++) {
-    const v = normalizedGray[i];
-    if (v < minLum) minLum = v;
-    if (v > maxLum) maxLum = v;
-  }
-  const range = maxLum - minLum || 1;
-  const contrastStretched = new Uint8Array(REF_WIDTH * REF_HEIGHT);
-  for (let i = 0; i < REF_WIDTH * REF_HEIGHT; i++) {
-    contrastStretched[i] = Math.round(((normalizedGray[i] - minLum) / range) * 255);
-  }
-
-  function evaluateBubble(expectedX: number, expectedY: number, radius = 10): BubbleMeasurement {
-    let bestX = expectedX;
-    let bestY = expectedY;
-    let minCoreGray = 255;
-
-    for (let dy = -6; dy <= 6; dy += 2) {
-      for (let dx = -6; dx <= 6; dx += 2) {
-        const cx = expectedX + dx;
-        const cy = expectedY + dy;
-        let sum = 0;
-        let cnt = 0;
-        for (let iy = -3; iy <= 3; iy++) {
-          for (let ix = -3; ix <= 3; ix++) {
-            const px = cx + ix;
-            const py = cy + iy;
-            if (px >= 0 && px < REF_WIDTH && py >= 0 && py < REF_HEIGHT) {
-              sum += contrastStretched[py * REF_WIDTH + px];
-              cnt++;
-            }
-          }
-        }
-        const avg = cnt > 0 ? sum / cnt : 255;
-        if (avg < minCoreGray) {
-          minCoreGray = avg;
-          bestX = cx;
-          bestY = cy;
-        }
-      }
-    }
-
-    let sumGray = 0;
-    let sumInnerGray = 0;
-    let totalPixels = 0;
-    let innerPixels = 0;
-    let darkPixels = 0;
-
-    const rInt = Math.ceil(radius);
-    const rSq = radius * radius;
-    const innerRSq = (radius * 0.55) * (radius * 0.55);
-
-    for (let y = Math.floor(bestY - rInt); y <= Math.ceil(bestY + rInt); y++) {
-      for (let x = Math.floor(bestX - rInt); x <= Math.ceil(bestX + rInt); x++) {
-        const dx = x - bestX;
-        const dy = y - bestY;
-        const dSq = dx * dx + dy * dy;
-        if (dSq <= rSq) {
-          const idx = y * REF_WIDTH + x;
-          const val = contrastStretched[idx];
-          sumGray += val;
-          totalPixels++;
-          if (val < 140) darkPixels++;
-
-          if (dSq <= innerRSq) {
-            sumInnerGray += val;
-            innerPixels++;
-          }
-        }
-      }
-    }
-
-    const meanGray = totalPixels > 0 ? sumGray / totalPixels : 255;
-    const innerMeanGray = innerPixels > 0 ? sumInnerGray / innerPixels : 255;
-    const fillRatio = totalPixels > 0 ? darkPixels / totalPixels : 0;
-
-    const darkness = 1 - meanGray / 255;
-    const innerDarkness = 1 - innerMeanGray / 255;
-
-    const score = darkness * 0.35 + innerDarkness * 0.65;
-
-    return {
-      x: bestX,
-      y: bestY,
-      radius,
-      meanGray,
-      innerMeanGray,
-      fillRatio,
-      darkness,
-      innerDarkness,
-      score,
-      isFilled: score >= 0.38 && meanGray <= 165,
-    };
-  }
-
-  // LRN Extraction (12 columns x 10 rows: 0..9)
-  const lrnColsX = [322, 362, 403, 443, 483, 522, 562, 601, 641, 681, 723, 760];
-  const lrnRowsY = [428, 473, 518, 563, 608, 653, 697, 738, 783, 828];
-
+  // 1. Evaluate LRN (12 columns x 10 rows: 0..9)
+  const lrnClassifications: DigitClassification[] = [];
   let extractedLRN = "";
-  for (let c = 0; c < 12; c++) {
-    const colScores: { digit: number; score: number; mean: number }[] = [];
-    for (let r = 0; r <= 9; r++) {
-      const m = evaluateBubble(lrnColsX[c], lrnRowsY[r], 9);
-      colScores.push({ digit: r, score: m.score, mean: m.meanGray });
-    }
-    colScores.sort((a, b) => b.score - a.score);
-    const top = colScores[0];
-    const second = colScores[1];
 
-    if (top.score >= 0.38 && top.mean <= 165) {
-      if (second && second.score >= 0.38 && second.score / top.score >= 0.85) {
-        extractedLRN += "?";
-      } else {
-        extractedLRN += top.digit.toString();
-      }
-    } else {
-      extractedLRN += "?";
+  for (let c = 0; c < 12; c++) {
+    const digitMeasurements = [];
+    for (let r = 0; r <= 9; r++) {
+      const metric = analyzeBubble(
+        normalizedGray,
+        REF_WIDTH,
+        REF_HEIGHT,
+        LRN_COLS_X[c],
+        LRN_ROWS_Y[r],
+        config.lrnBubbleRadius,
+        config
+      );
+      digitMeasurements.push({ digit: r, metric });
     }
+
+    const classification = classifyDigitColumn(digitMeasurements, config);
+    lrnClassifications.push(classification);
+    extractedLRN += classification.digitChar;
   }
 
-  // 60 Items across 3 Columns (3 x 20)
-  const qCols3 = [
-    { startQ: 1, A: 392, B: 436, C: 480, D: 524 },
-    { startQ: 21, A: 673, B: 717, C: 761, D: 807 },
-    { startQ: 41, A: 951, B: 997, C: 1041, D: 1087 },
-  ];
-  const qRows3Y = [
-    947, 997, 1046, 1096, 1144, 1193, 1240, 1287, 1338, 1386,
-    1464, 1514, 1563, 1611, 1659, 1708, 1757, 1806, 1854, 1903,
-  ];
-
-  const optionsList = ["A", "B", "C", "D"] as const;
+  // 2. Evaluate 60 Items (3 Columns x 20 Rows)
+  const questionClassifications: QuestionClassification[] = [];
   const answers: OMRAnswer[] = [];
 
+  let filledCount = 0;
+  let blankCount = 0;
+  let multipleCount = 0;
+  let sumConfidence = 0;
+
   for (let colIdx = 0; colIdx < 3; colIdx++) {
-    const col = qCols3[colIdx];
+    const col = QUESTION_COLUMNS[colIdx];
     for (let r = 0; r < 20; r++) {
-      const itemNum = col.startQ + r;
-      const rowY = qRows3Y[r];
+      const qNum = col.startQ + r;
+      const rowY = QUESTION_ROWS_Y[r];
+      const opts = ["A", "B", "C", "D"] as const;
 
-      const measurements = optionsList.map((opt) => {
-        const bx = col[opt];
-        const m = evaluateBubble(bx, rowY, 10);
-        return { opt, ...m };
-      });
+      const measurements = opts.map((opt) => ({
+        option: opt,
+        metric: analyzeBubble(
+          normalizedGray,
+          REF_WIDTH,
+          REF_HEIGHT,
+          col[opt],
+          rowY,
+          config.bubbleRadius,
+          config
+        ),
+      }));
 
-      measurements.sort((a, b) => b.score - a.score);
-      const first = measurements[0];
-      const second = measurements[1];
+      const qClass = classifyQuestion(measurements, qNum, config);
+      questionClassifications.push(qClass);
 
-      let selectedOption: OptionType = null;
-      let confidence = 98;
+      if (qClass.isBlank) blankCount++;
+      else if (qClass.isMultiple) multipleCount++;
+      else filledCount++;
 
-      if (first.score >= 0.38 && first.meanGray <= 165) {
-        if (second && second.score >= 0.38 && second.score / first.score >= 0.85) {
-          selectedOption = "MULTIPLE";
-          confidence = 90;
-        } else {
-          selectedOption = first.opt;
-          confidence = Math.min(99, Math.round(75 + first.score * 30));
-        }
-      } else {
-        selectedOption = null;
-        confidence = 98;
-      }
+      sumConfidence += qClass.confidence;
 
       answers.push({
-        item_number: itemNum,
-        selected_option: selectedOption,
-        confidence,
+        item_number: qNum,
+        selected_option: qClass.answer,
+        confidence: Math.round(qClass.confidence * 100),
       });
     }
   }
 
   answers.sort((a, b) => a.item_number - b.item_number);
+  const avgConfidence = Math.round((sumConfidence / 60) * 100) / 100;
+
+  // 3. Render Debug Canvas with visual overlays
+  const debugCanvas = document.createElement("canvas");
+  debugCanvas.width = REF_WIDTH;
+  debugCanvas.height = REF_HEIGHT;
+  const dCtx = debugCanvas.getContext("2d");
+  let debugPreview: string | undefined;
+
+  if (dCtx) {
+    // Draw normalized grayscale sheet
+    const grayImgData = dCtx.createImageData(REF_WIDTH, REF_HEIGHT);
+    const dRgba = grayImgData.data;
+    for (let i = 0, p = 0; i < normalizedGray.length; i++, p += 4) {
+      const v = normalizedGray[i];
+      dRgba[p] = v;
+      dRgba[p + 1] = v;
+      dRgba[p + 2] = v;
+      dRgba[p + 3] = 255;
+    }
+    dCtx.putImageData(grayImgData, 0, 0);
+
+    // Draw LRN overlays
+    for (let c = 0; c < 12; c++) {
+      const digitClass = lrnClassifications[c];
+      for (let r = 0; r <= 9; r++) {
+        const cx = LRN_COLS_X[c];
+        const cy = LRN_ROWS_Y[r];
+        const isSelected = digitClass.digit === r;
+        const m = digitClass.metrics[r];
+
+        if (isSelected) {
+          dCtx.fillStyle = "rgba(16, 185, 129, 0.35)";
+          dCtx.strokeStyle = "#10B981";
+          dCtx.lineWidth = 2.5;
+          dCtx.beginPath();
+          dCtx.arc(cx, cy, config.lrnBubbleRadius, 0, Math.PI * 2);
+          dCtx.fill();
+          dCtx.stroke();
+        } else if (m && m.score >= config.minScore) {
+          dCtx.fillStyle = "rgba(245, 158, 11, 0.25)";
+          dCtx.strokeStyle = "#F59E0B";
+          dCtx.lineWidth = 2;
+          dCtx.beginPath();
+          dCtx.arc(cx, cy, config.lrnBubbleRadius, 0, Math.PI * 2);
+          dCtx.fill();
+          dCtx.stroke();
+        }
+      }
+    }
+
+    // Draw Question Overlays
+    questionClassifications.forEach((q) => {
+      const colGroup = QUESTION_COLUMNS.find((cg) => q.questionNumber >= cg.startQ && q.questionNumber <= cg.endQ);
+      if (!colGroup) return;
+
+      const rowIdx = q.questionNumber - colGroup.startQ;
+      const cy = QUESTION_ROWS_Y[rowIdx];
+      const opts = ["A", "B", "C", "D"] as const;
+
+      opts.forEach((opt) => {
+        const cx = colGroup[opt];
+        const m = q.metrics[opt];
+        const isWinner = q.answer === opt;
+        const isPartMultiple = q.answer === "MULTIPLE" && m.score >= config.multipleScore;
+        const isCandidate = m.score >= config.minScore;
+
+        if (isWinner) {
+          dCtx.fillStyle = "rgba(16, 185, 129, 0.35)";
+          dCtx.strokeStyle = "#10B981";
+          dCtx.lineWidth = 2.5;
+          dCtx.beginPath();
+          dCtx.arc(cx, cy, config.bubbleRadius, 0, Math.PI * 2);
+          dCtx.fill();
+          dCtx.stroke();
+
+          dCtx.strokeStyle = "#059669";
+          dCtx.lineWidth = 1.5;
+          dCtx.beginPath();
+          dCtx.arc(cx, cy, config.bubbleRadius * config.innerRadiusRatio, 0, Math.PI * 2);
+          dCtx.stroke();
+        } else if (isPartMultiple) {
+          dCtx.fillStyle = "rgba(239, 68, 68, 0.35)";
+          dCtx.strokeStyle = "#EF4444";
+          dCtx.lineWidth = 2.5;
+          dCtx.beginPath();
+          dCtx.arc(cx, cy, config.bubbleRadius, 0, Math.PI * 2);
+          dCtx.fill();
+          dCtx.stroke();
+        } else if (isCandidate) {
+          dCtx.fillStyle = "rgba(245, 158, 11, 0.25)";
+          dCtx.strokeStyle = "#F59E0B";
+          dCtx.lineWidth = 2;
+          dCtx.beginPath();
+          dCtx.arc(cx, cy, config.bubbleRadius, 0, Math.PI * 2);
+          dCtx.fill();
+          dCtx.stroke();
+        } else {
+          dCtx.strokeStyle = "rgba(148, 163, 184, 0.35)";
+          dCtx.lineWidth = 1;
+          dCtx.beginPath();
+          dCtx.arc(cx, cy, config.bubbleRadius, 0, Math.PI * 2);
+          dCtx.stroke();
+        }
+      });
+
+      const labelX = colGroup.A - 52;
+      const tagText = q.isBlank
+        ? `Q${q.questionNumber}: -`
+        : q.isMultiple
+        ? `Q${q.questionNumber}: MULTI`
+        : `Q${q.questionNumber}: ${q.answer} (${Math.round(q.confidence * 100)}%)`;
+
+      dCtx.font = "bold 11px monospace";
+      dCtx.fillStyle = q.isBlank ? "#64748B" : q.isMultiple ? "#EF4444" : "#059669";
+      dCtx.fillText(tagText, labelX, cy + 4);
+    });
+
+    debugPreview = debugCanvas.toDataURL("image/jpeg", 0.85);
+  }
 
   const processingTimeMs = Math.round((performance.now() - startTime) * 10) / 10;
 
@@ -575,5 +579,15 @@ export async function processOMRWithCV(
     answers,
     scan_timestamp: new Date().toISOString(),
     processing_time_ms: processingTimeMs,
+    debug_preview: debugPreview,
+    telemetry: {
+      algorithm: "TWO_ZONE_CIRCULAR_RELATIVE_NORMALIZED",
+      totalBubblesEvaluated: 12 * 10 + 60 * 4,
+      filledCount,
+      blankCount,
+      multipleCount,
+      averageConfidence: avgConfidence,
+      alignmentStatus,
+    },
   };
 }

@@ -34,6 +34,9 @@ export function ScanResultInspector({
 }: ScanResultInspectorProps) {
   const [currentResult, setCurrentResult] = useState<OMRScanResult>(scanResult);
   const [activeTab, setActiveTab] = useState<"matrix" | "lrn" | "json">("matrix");
+  const [viewMode, setViewMode] = useState<"raw" | "diagnostics">(
+    scanResult.debug_preview ? "diagnostics" : "raw"
+  );
   const [copiedJson, setCopiedJson] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [zoomLevel, setZoomLevel] = useState(1);
@@ -283,10 +286,32 @@ export function ScanResultInspector({
         <div className="lg:col-span-5 space-y-3">
           <div className="bg-[#14171A] border border-[#272C33] rounded-xs overflow-hidden flex flex-col">
             {/* Viewer Controls Header */}
-            <div className="p-2.5 bg-[#1C1F24] border-b border-[#272C33] flex items-center justify-between text-xs">
-              <span className="text-[10px] text-slate-400 uppercase tracking-wider font-bold">
-                RAW_OPTICAL_FEED
-              </span>
+            <div className="p-2 bg-[#1C1F24] border-b border-[#272C33] flex items-center justify-between text-xs gap-2 flex-wrap">
+              <div className="flex items-center space-x-1 bg-[#0D0F12] p-0.5 border border-slate-800 rounded-xs">
+                <button
+                  onClick={() => setViewMode("raw")}
+                  className={`px-2 py-1 text-[10px] font-bold uppercase tracking-wider rounded-xs transition-all ${
+                    viewMode === "raw"
+                      ? "bg-[#FF7A00] text-black"
+                      : "text-slate-400 hover:text-white"
+                  }`}
+                >
+                  RAW_FEED
+                </button>
+                {currentResult.debug_preview && (
+                  <button
+                    onClick={() => setViewMode("diagnostics")}
+                    className={`px-2 py-1 text-[10px] font-bold uppercase tracking-wider rounded-xs transition-all flex items-center space-x-1 ${
+                      viewMode === "diagnostics"
+                        ? "bg-emerald-500 text-black font-black shadow-[0_0_8px_rgba(16,185,129,0.4)]"
+                        : "text-emerald-400 hover:text-white"
+                    }`}
+                  >
+                    <span>CV_DIAGNOSTICS</span>
+                  </button>
+                )}
+              </div>
+
               <div className="flex items-center space-x-1">
                 <button
                   onClick={() => setZoomLevel((prev) => Math.max(0.7, prev - 0.2))}
@@ -320,9 +345,13 @@ export function ScanResultInspector({
 
             {/* Viewer Canvas Area */}
             <div className="relative h-[320px] sm:h-[440px] bg-[#0D0F12] overflow-auto flex items-center justify-center p-2 border-b border-[#272C33]">
-              {imageSrc ? (
+              {(viewMode === "diagnostics" && currentResult.debug_preview) || imageSrc ? (
                 <img
-                  src={imageSrc}
+                  src={
+                    viewMode === "diagnostics" && currentResult.debug_preview
+                      ? currentResult.debug_preview
+                      : imageSrc
+                  }
                   alt="Scanned OMR Document"
                   style={{
                     transform: `scale(${zoomLevel})`,

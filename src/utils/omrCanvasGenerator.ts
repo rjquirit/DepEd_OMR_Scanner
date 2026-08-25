@@ -10,14 +10,31 @@ export interface SheetGenerationOptions {
   examTitle?: string;
 }
 
+export const REF_WIDTH = 1467;
+export const REF_HEIGHT = 2048;
+
+const LRN_COLS_X = [322, 362, 403, 443, 483, 522, 562, 601, 641, 681, 723, 760];
+const LRN_ROWS_Y = [428, 473, 518, 563, 608, 653, 697, 738, 783, 828];
+
+const Q_COLS = [
+  { startItem: 1, endItem: 20, itemX: 350, optX: { A: 392, B: 436, C: 480, D: 524 } },
+  { startItem: 21, endItem: 40, itemX: 630, optX: { A: 673, B: 717, C: 761, D: 807 } },
+  { startItem: 41, endItem: 60, itemX: 910, optX: { A: 951, B: 997, C: 1041, D: 1087 } },
+];
+
+const Q_ROWS_Y = [
+  947, 997, 1046, 1096, 1144, 1193, 1240, 1287, 1338, 1386,
+  1464, 1514, 1563, 1611, 1659, 1708, 1757, 1806, 1854, 1903,
+];
+
 /**
  * Generates an ultra-crisp standardized 60-item OMR Answer Sheet onto an HTML Canvas
- * and returns it as a data URL.
+ * with exact 1467 x 2048 resolution matching the official "blank bubble sheet 60 items.png" template.
  */
 export function generateOMRSheetCanvas(
   options: Partial<SheetGenerationOptions> = {},
-  width = 1600,
-  height = 2200
+  width = REF_WIDTH,
+  height = REF_HEIGHT
 ): HTMLCanvasElement {
   const canvas = document.createElement("canvas");
   canvas.width = width;
@@ -37,148 +54,148 @@ export function generateOMRSheetCanvas(
     answers = {},
     includeFiducials = true,
     addScanNoise = false,
-    title = "STANDARDIZED ASSESSMENT ANSWER SHEET",
-    examTitle = "GENERAL SCHOLASTIC ACHIEVEMENT TEST (60 ITEMS)",
   } = options;
 
-  // Background - clean white with slight paper warmth
-  ctx.fillStyle = "#FAF9F6";
+  // Background - clean paper white
+  ctx.fillStyle = "#FFFFFF";
   ctx.fillRect(0, 0, width, height);
 
-  // Helper drawing functions
-  ctx.strokeStyle = "#1A1A1A";
-  ctx.fillStyle = "#1A1A1A";
-
-  // 1. Black Corner Fiducial Markers (Timing marks for OMR alignment)
+  // 1. Black Corner Fiducial Markers (Exact centers: TL 110,252; TR 1355,252; BL 110,1928; BR 1355,1928)
   if (includeFiducials) {
     ctx.fillStyle = "#000000";
-    const fiducialSize = 36;
-    const margin = 30;
-    // Top-left, Top-right, Bottom-left, Bottom-right
-    ctx.fillRect(margin, margin, fiducialSize, fiducialSize);
-    ctx.fillRect(width - margin - fiducialSize, margin, fiducialSize, fiducialSize);
-    ctx.fillRect(margin, height - margin - fiducialSize, fiducialSize, fiducialSize);
-    ctx.fillRect(width - margin - fiducialSize, height - margin - fiducialSize, fiducialSize, fiducialSize);
+    const fiducialHalf = 24;
+    // TL
+    ctx.fillRect(110 - fiducialHalf, 252 - fiducialHalf, fiducialHalf * 2, fiducialHalf * 2);
+    // TR
+    ctx.fillRect(1355 - fiducialHalf, 252 - fiducialHalf, fiducialHalf * 2, fiducialHalf * 2);
+    // BL
+    ctx.fillRect(110 - fiducialHalf, 1928 - fiducialHalf, fiducialHalf * 2, fiducialHalf * 2);
+    // BR
+    ctx.fillRect(1355 - fiducialHalf, 1928 - fiducialHalf, fiducialHalf * 2, fiducialHalf * 2);
 
-    // Left and Right timing tracks (vertical black ticks)
-    for (let y = 140; y < height - 120; y += 40) {
-      ctx.fillRect(margin + 6, y, 16, 6);
-      ctx.fillRect(width - margin - 22, y, 16, 6);
+    // Left and right timing marks
+    for (let y = 300; y <= 1880; y += 30) {
+      ctx.fillRect(80, y - 3, 16, 6);
+      ctx.fillRect(1370, y - 3, 16, 6);
     }
   }
 
-  const contentLeft = 90;
-  const contentRight = width - 90;
-  const contentWidth = contentRight - contentLeft;
-
-  // 2. Header Box & Title
+  // 2. Header Box & Titles
+  ctx.strokeStyle = "#1A1A1A";
   ctx.lineWidth = 3;
-  ctx.strokeStyle = "#0F172A";
-  ctx.strokeRect(contentLeft, 70, contentWidth, 90);
+  ctx.strokeRect(170, 70, 1127, 130);
 
   ctx.fillStyle = "#0F172A";
-  ctx.font = "bold 26px sans-serif";
+  ctx.font = "bold 28px sans-serif";
   ctx.textAlign = "center";
-  ctx.fillText(title, width / 2, 108);
+  ctx.fillText("DEPARTMENT OF EDUCATION", width / 2, 112);
 
-  ctx.font = "bold 18px sans-serif";
+  ctx.font = "bold 20px sans-serif";
   ctx.fillStyle = "#334155";
-  ctx.fillText(examTitle, width / 2, 138);
+  ctx.fillText("STANDARDIZED ASSESSMENT ANSWER SHEET (60 ITEMS)", width / 2, 150);
 
-  // 3. Instructions & Guide Strip
-  ctx.fillStyle = "#F1F5F9";
-  ctx.fillRect(contentLeft, 175, contentWidth, 54);
-  ctx.strokeRect(contentLeft, 175, contentWidth, 54);
-
-  ctx.fillStyle = "#0F172A";
   ctx.font = "14px sans-serif";
-  ctx.textAlign = "left";
-  ctx.fillText("INSTRUCTIONS: Use #2 Pencil or Black Pen only. Completely fill the circle corresponding to your chosen answer.", contentLeft + 16, 198);
-  ctx.fillText("CORRECT MARK: ⬤   INCORRECT MARKS: ✖  ✔  ◐  ━", contentLeft + 16, 218);
+  ctx.fillStyle = "#64748B";
+  ctx.fillText("LRN / 60-ITEM EXAM FORM • SHADE PENCIL #2 OR BLACK INK ONLY", width / 2, 180);
 
-  // 4. Student Information Grid (Left) & LRN Grid (Right)
-  const infoTop = 245;
-  const infoHeight = 310;
-  const splitX = contentLeft + 520; // dividing student info from LRN grid
+  // 3. Student Information Section (Left)
+  const infoLeft = 170;
+  const infoTop = 230;
+  const infoWidth = 620;
+  const infoHeight = 630;
 
-  // Student Info Box
-  ctx.strokeRect(contentLeft, infoTop, 500, infoHeight);
-  ctx.fillStyle = "#0F172A";
+  ctx.strokeStyle = "#1A1A1A";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(infoLeft, infoTop, infoWidth, infoHeight);
+
+  ctx.fillStyle = "#1E293B";
+  ctx.fillRect(infoLeft, infoTop, infoWidth, 36);
+  ctx.fillStyle = "#FFFFFF";
   ctx.font = "bold 16px sans-serif";
-  ctx.fillText("STUDENT INFORMATION", contentLeft + 16, infoTop + 26);
+  ctx.textAlign = "left";
+  ctx.fillText("STUDENT INFORMATION", infoLeft + 16, infoTop + 24);
 
-  const renderField = (label: string, value: string | null, y: number) => {
-    ctx.fillStyle = "#475569";
-    ctx.font = "bold 13px sans-serif";
-    ctx.fillText(label, contentLeft + 16, y);
+  const drawField = (label: string, val: string | null, y: number) => {
+    ctx.fillStyle = "#334155";
+    ctx.font = "bold 15px sans-serif";
+    ctx.textAlign = "left";
+    ctx.fillText(label, infoLeft + 20, y);
+
     ctx.strokeStyle = "#94A3B8";
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.moveTo(contentLeft + 140, y + 4);
-    ctx.lineTo(contentLeft + 480, y + 4);
+    ctx.moveTo(infoLeft + 140, y + 4);
+    ctx.lineTo(infoLeft + infoWidth - 20, y + 4);
     ctx.stroke();
 
-    if (value) {
-      ctx.fillStyle = "#0F172A";
+    if (val) {
+      ctx.fillStyle = "#000000";
       ctx.font = "bold 17px monospace";
-      ctx.fillText(value.toUpperCase(), contentLeft + 145, y);
+      ctx.fillText(val.toUpperCase(), infoLeft + 145, y);
     }
   };
 
-  renderField("NAME:", metadata.name, infoTop + 70);
-  renderField("SECTION:", metadata.section, infoTop + 115);
-  renderField("SCHOOL ID:", metadata.school_id, infoTop + 160);
-  renderField("GRADE LEVEL:", metadata.grade_level, infoTop + 205);
-  renderField("SUBJECT:", metadata.subject, infoTop + 250);
+  drawField("NAME:", metadata.name, infoTop + 90);
+  drawField("SECTION:", metadata.section, infoTop + 160);
+  drawField("SCHOOL ID:", metadata.school_id, infoTop + 230);
+  drawField("GRADE LEVEL:", metadata.grade_level, infoTop + 300);
+  drawField("SUBJECT:", metadata.subject, infoTop + 370);
 
-  // 5. Student LRN Grid (12 Columns, 0-9 rows)
-  const lrnBoxLeft = splitX;
-  const lrnBoxWidth = contentRight - splitX;
-  ctx.strokeStyle = "#0F172A";
-  ctx.lineWidth = 3;
-  ctx.strokeRect(lrnBoxLeft, infoTop, lrnBoxWidth, infoHeight);
+  // Instructions inside info box
+  ctx.fillStyle = "#F1F5F9";
+  ctx.fillRect(infoLeft + 16, infoTop + 430, infoWidth - 32, 170);
+  ctx.strokeStyle = "#CBD5E1";
+  ctx.strokeRect(infoLeft + 16, infoTop + 430, infoWidth - 32, 170);
 
   ctx.fillStyle = "#0F172A";
+  ctx.font = "bold 14px sans-serif";
+  ctx.fillText("EXAM GUIDELINES:", infoLeft + 30, infoTop + 460);
+  ctx.font = "13px sans-serif";
+  ctx.fillStyle = "#334155";
+  ctx.fillText("1. Use soft black pencil or dark black ink pen.", infoLeft + 30, infoTop + 490);
+  ctx.fillText("2. Completely shade the bubble for your chosen answer.", infoLeft + 30, infoTop + 518);
+  ctx.fillText("3. Keep sheet flat and clean. Do not fold or smudge marks.", infoLeft + 30, infoTop + 546);
+  ctx.fillText("CORRECT: ⬤   INCORRECT: ✖  ✔  ◐  ━", infoLeft + 30, infoTop + 576);
+
+  // 4. LRN Grid (Right)
+  const lrnBoxLeft = 810;
+  const lrnBoxWidth = 487;
+  ctx.strokeStyle = "#1A1A1A";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(lrnBoxLeft, infoTop, lrnBoxWidth, infoHeight);
+
+  ctx.fillStyle = "#1E293B";
+  ctx.fillRect(lrnBoxLeft, infoTop, lrnBoxWidth, 36);
+  ctx.fillStyle = "#FFFFFF";
   ctx.font = "bold 16px sans-serif";
   ctx.textAlign = "center";
-  ctx.fillText("STUDENT LRN (LEARNER REFERENCE NUMBER)", lrnBoxLeft + lrnBoxWidth / 2, infoTop + 26);
+  ctx.fillText("STUDENT LRN (12 DIGITS)", lrnBoxLeft + lrnBoxWidth / 2, infoTop + 24);
 
-  // 12 Column headers + 0-9 bubble grid
-  const lrnCols = 12;
-  const lrnRows = 10; // 0 to 9
-  const gridStartX = lrnBoxLeft + 35;
-  const colSpacing = (lrnBoxWidth - 70) / (lrnCols - 1);
-  const rowStartY = infoTop + 85;
-  const rowSpacing = 21;
-
-  // LRN digits written boxes
-  ctx.font = "bold 15px monospace";
-  for (let c = 0; c < lrnCols; c++) {
-    const cx = gridStartX + c * colSpacing;
-    ctx.strokeStyle = "#334155";
-    ctx.lineWidth = 1.5;
-    ctx.strokeRect(cx - 13, infoTop + 40, 26, 26);
+  // Draw 12 digit boxes and bubbles
+  const cleanLrn = (lrn || "").padEnd(12, "?");
+  for (let c = 0; c < 12; c++) {
+    const cx = LRN_COLS_X[c] || (lrnBoxLeft + 30 + c * 36);
     
-    // digit in box
-    const digitChar = lrn[c] || "";
-    if (digitChar && digitChar !== "?") {
-      ctx.fillStyle = "#0F172A";
+    // Top digit box
+    ctx.strokeStyle = "#475569";
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(cx - 14, infoTop + 48, 28, 28);
+    const char = cleanLrn[c];
+    if (char && char !== "?") {
+      ctx.fillStyle = "#000000";
+      ctx.font = "bold 16px monospace";
       ctx.textAlign = "center";
-      ctx.fillText(digitChar, cx, infoTop + 58);
+      ctx.fillText(char, cx, infoTop + 68);
     }
-  }
 
-  // Draw 12x10 LRN bubbles
-  for (let c = 0; c < lrnCols; c++) {
-    const cx = gridStartX + c * colSpacing;
-    const targetDigit = lrn[c] !== "?" ? parseInt(lrn[c], 10) : -1;
-
+    // 0-9 bubbles
+    const targetDigit = char !== "?" ? parseInt(char, 10) : -1;
     for (let r = 0; r <= 9; r++) {
-      const cy = rowStartY + r * rowSpacing;
+      const cy = LRN_ROWS_Y[r];
       const isFilled = targetDigit === r;
 
       ctx.beginPath();
-      ctx.arc(cx, cy, 8.5, 0, Math.PI * 2);
+      ctx.arc(cx, cy, 11, 0, Math.PI * 2);
       if (isFilled) {
         ctx.fillStyle = "#111827";
         ctx.fill();
@@ -192,7 +209,7 @@ export function generateOMRSheetCanvas(
         ctx.lineWidth = 1.5;
         ctx.stroke();
 
-        ctx.fillStyle = "#64748B";
+        ctx.fillStyle = "#475569";
         ctx.font = "bold 11px sans-serif";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
@@ -201,101 +218,58 @@ export function generateOMRSheetCanvas(
     }
   }
 
-  // 6. 60-Item Answers Grid (4 Columns of 15 Items each)
-  const answersTop = 575;
-  const answersHeight = height - answersTop - 80;
-  const numColumns = 4;
-  const columnWidth = (contentWidth - 60) / numColumns;
+  // 5. 60 Questions Answer Section (3 Columns of 20 Items each)
+  const ansBoxTop = 880;
+  const ansBoxHeight = 1070;
+  ctx.strokeStyle = "#1A1A1A";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(170, ansBoxTop, 1127, ansBoxHeight);
 
-  ctx.strokeStyle = "#0F172A";
-  ctx.lineWidth = 3;
-  ctx.strokeRect(contentLeft, answersTop, contentWidth, answersHeight);
-
-  // Title bar for Answers section
+  // Column header titles
   ctx.fillStyle = "#1E293B";
-  ctx.fillRect(contentLeft, answersTop, contentWidth, 36);
+  ctx.fillRect(170, ansBoxTop, 1127, 36);
   ctx.fillStyle = "#FFFFFF";
   ctx.font = "bold 16px sans-serif";
   ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText("EXAMINATION ANSWER SHEET — 60 ITEMS", width / 2, answersTop + 18);
+  ctx.fillText("EXAMINATION ITEMS (1 - 60)", width / 2, ansBoxTop + 24);
 
-  const optionsList = ["A", "B", "C", "D"] as const;
-  const optSpacing = 28;
+  const opts: ("A" | "B" | "C" | "D")[] = ["A", "B", "C", "D"];
 
-  for (let colIdx = 0; colIdx < numColumns; colIdx++) {
-    const colLeft = contentLeft + 15 + colIdx * (columnWidth + 10);
-    const startItem = colIdx * 15 + 1;
-    const endItem = startItem + 14;
-
-    // Column container outline
-    ctx.strokeStyle = "#CBD5E1";
-    ctx.lineWidth = 1.5;
-    ctx.strokeRect(colLeft, answersTop + 50, columnWidth, answersHeight - 65);
-
-    // Column Header (Item | A B C D)
-    ctx.fillStyle = "#F8FAFC";
-    ctx.fillRect(colLeft, answersTop + 50, columnWidth, 34);
-    ctx.fillStyle = "#334155";
-    ctx.font = "bold 13px sans-serif";
+  Q_COLS.forEach((colGroup) => {
+    // Column header for A B C D
+    ctx.fillStyle = "#475569";
+    ctx.font = "bold 14px sans-serif";
     ctx.textAlign = "center";
-    ctx.fillText("ITEM", colLeft + 40, answersTop + 68);
-
-    const bubbleGroupCenterX = colLeft + columnWidth - 75;
-    optionsList.forEach((opt, oIdx) => {
-      const bx = bubbleGroupCenterX - (1.5 * optSpacing) + oIdx * optSpacing;
-      ctx.fillText(opt, bx, answersTop + 68);
+    ctx.textBaseline = "middle";
+    ctx.fillText("ITEM", colGroup.itemX, ansBoxTop + 54);
+    opts.forEach((opt) => {
+      ctx.fillText(opt, colGroup.optX[opt], ansBoxTop + 54);
     });
 
-    // Draw 15 Items in this column
-    const itemRowSpacing = (answersHeight - 110) / 15;
-    for (let i = 0; i < 15; i++) {
-      const itemNum = startItem + i;
-      const rowY = answersTop + 102 + i * itemRowSpacing;
+    for (let rowIdx = 0; rowIdx < 20; rowIdx++) {
+      const qNum = colGroup.startItem + rowIdx;
+      const cy = Q_ROWS_Y[rowIdx];
+      const selected = answers[qNum];
 
-      // Alternating row background for clean scanning readability
-      if (i % 2 === 1) {
-        ctx.fillStyle = "#F8FAFC";
-        ctx.fillRect(colLeft + 2, rowY - 14, columnWidth - 4, itemRowSpacing);
-      }
-
-      // Item Number
+      // Item number
       ctx.fillStyle = "#0F172A";
       ctx.font = "bold 15px monospace";
       ctx.textAlign = "right";
-      ctx.fillText(itemNum.toString().padStart(2, "0") + ".", colLeft + 52, rowY);
+      ctx.fillText(qNum.toString().padStart(2, "0") + ".", colGroup.itemX + 16, cy);
 
       // Bubbles A, B, C, D
-      const selected = answers[itemNum];
-
-      optionsList.forEach((opt, oIdx) => {
-        const bx = bubbleGroupCenterX - (1.5 * optSpacing) + oIdx * optSpacing;
-        let isFilled = false;
-
-        if (selected === opt) {
-          isFilled = true;
-        } else if (selected === "MULTIPLE") {
-          // If multiple, shade A and C for demonstration
-          if (opt === "A" || opt === "C" || (itemNum % 2 === 0 && opt === "B")) {
-            isFilled = true;
-          }
-        }
+      opts.forEach((opt) => {
+        const bx = colGroup.optX[opt];
+        const isFilled = selected === opt || (selected === "MULTIPLE" && (opt === "A" || opt === "C"));
 
         ctx.beginPath();
-        ctx.arc(bx, rowY, 9.5, 0, Math.PI * 2);
-
+        ctx.arc(bx, cy, 11, 0, Math.PI * 2);
         if (isFilled) {
-          ctx.fillStyle = "#0F172A";
+          ctx.fillStyle = "#111827";
           ctx.fill();
-          ctx.strokeStyle = "#0F172A";
+          ctx.strokeStyle = "#111827";
           ctx.lineWidth = 2;
           ctx.stroke();
-
-          // slight pencil graphite texture highlight
-          ctx.beginPath();
-          ctx.arc(bx - 2, rowY - 2, 4, 0, Math.PI * 2);
-          ctx.fillStyle = "#1E293B";
-          ctx.fill();
         } else {
           ctx.fillStyle = "#FFFFFF";
           ctx.fill();
@@ -303,31 +277,31 @@ export function generateOMRSheetCanvas(
           ctx.lineWidth = 1.5;
           ctx.stroke();
 
-          ctx.fillStyle = "#64748B";
+          ctx.fillStyle = "#475569";
           ctx.font = "bold 11px sans-serif";
           ctx.textAlign = "center";
           ctx.textBaseline = "middle";
-          ctx.fillText(opt, bx, rowY);
+          ctx.fillText(opt, bx, cy);
         }
       });
     }
-  }
+  });
 
   // Footer bar
   ctx.fillStyle = "#64748B";
   ctx.font = "12px sans-serif";
   ctx.textAlign = "center";
-  ctx.fillText("DO NOT FOLD OR TEAR THIS SHEET • STANDARDIZED OMR SCANNER SHEET v2.4 • FORM-60", width / 2, height - 35);
+  ctx.fillText("DEPED OFFICIAL OMR FORM-60 • CALIBRATED FIDUCIAL TIMING GRID", width / 2, height - 35);
 
-  // Optional scanning artifact noise
+  // Optional noise
   if (addScanNoise) {
     const imgData = ctx.getImageData(0, 0, width, height);
-    const data = imgData.data;
-    for (let p = 0; p < data.length; p += 4) {
-      const noise = (Math.random() - 0.5) * 12;
-      data[p] = Math.min(255, Math.max(0, data[p] + noise));
-      data[p + 1] = Math.min(255, Math.max(0, data[p + 1] + noise));
-      data[p + 2] = Math.min(255, Math.max(0, data[p + 2] + noise));
+    const d = imgData.data;
+    for (let p = 0; p < d.length; p += 4) {
+      const noise = (Math.random() - 0.5) * 10;
+      d[p] = Math.min(255, Math.max(0, d[p] + noise));
+      d[p + 1] = Math.min(255, Math.max(0, d[p + 1] + noise));
+      d[p + 2] = Math.min(255, Math.max(0, d[p + 2] + noise));
     }
     ctx.putImageData(imgData, 0, 0);
   }
@@ -338,28 +312,25 @@ export function generateOMRSheetCanvas(
 /**
  * Creates preset sample sheets for immediate 1-click testing.
  */
-export function getSampleSheets(): { id: string; name: string; description: string; options: SheetGenerationOptions }[] {
-  // Sample 1: Perfect / High Scorer
+export function getSampleSheets(): { id: string; name: string; description: string; options: Partial<SheetGenerationOptions> }[] {
   const perfectAnswers: Record<number, OptionType> = {};
   const pattern1: OptionType[] = ["A", "B", "C", "D", "A", "C", "B", "D", "B", "A", "C", "D", "A", "B", "C"];
   for (let i = 1; i <= 60; i++) {
     perfectAnswers[i] = pattern1[(i - 1) % pattern1.length];
   }
 
-  // Sample 2: Typical Student with realistic answers
   const typicalAnswers: Record<number, OptionType> = {};
-  const pattern2: OptionType[] = ["A", "A", "A", "B", "C", "D", "D", "C", "B", "A", "B", "C", "D", "A", "C"];
+  const pattern2: OptionType[] = ["A", "A", "A", "B", "C", "D", "C", "B", "A", "B", "C", "D", "B", "D", "A"];
   for (let i = 1; i <= 60; i++) {
     typicalAnswers[i] = pattern2[(i * 3) % pattern2.length];
   }
 
-  // Sample 3: Sheet with multiple marks and blank items
   const mixedAnswers: Record<number, OptionType> = {};
   for (let i = 1; i <= 60; i++) {
     if (i === 14 || i === 38) {
       mixedAnswers[i] = "MULTIPLE";
     } else if (i === 22 || i === 49 || i === 57) {
-      mixedAnswers[i] = null; // left blank
+      mixedAnswers[i] = null;
     } else {
       mixedAnswers[i] = (["A", "B", "C", "D"] as const)[(i * 7) % 4];
     }

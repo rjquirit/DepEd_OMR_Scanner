@@ -22,6 +22,16 @@ export interface OMRScanResult {
   scan_timestamp?: string;
   processing_time_ms?: number;
   image_preview?: string;
+  debug_preview?: string;
+  telemetry?: {
+    algorithm: string;
+    totalBubblesEvaluated: number;
+    filledCount: number;
+    blankCount: number;
+    multipleCount: number;
+    averageConfidence: number;
+    alignmentStatus: string;
+  };
 }
 
 export interface AnswerKey {

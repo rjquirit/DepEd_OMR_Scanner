@@ -178,7 +178,7 @@ export function CameraViewfinder({ onCaptureImage, isProcessing }: CameraViewfin
     setSelectedDeviceId("");
   };
 
-  // Capture Frame
+  // Capture Frame strictly bounded to the 3:4 aspect ratio viewport
   const takeSnapshot = () => {
     if (!videoRef.current) return;
     const video = videoRef.current;
@@ -187,16 +187,43 @@ export function CameraViewfinder({ onCaptureImage, isProcessing }: CameraViewfin
     setFlashEffect(true);
     setTimeout(() => setFlashEffect(false), 200);
 
+    // Calculate exact 3:4 crop sub-rectangle corresponding to object-cover in 3:4 aspect ratio
+    const targetAspect = 3 / 4; // 0.75
+    const videoAspect = video.videoWidth / video.videoHeight;
+    let srcX = 0;
+    let srcY = 0;
+    let srcW = video.videoWidth;
+    let srcH = video.videoHeight;
+
+    if (videoAspect > targetAspect) {
+      // Video is wider than 3:4 (e.g. 16:9 or 4:3) - crop horizontal margins
+      srcW = Math.round(video.videoHeight * targetAspect);
+      srcH = video.videoHeight;
+      srcX = Math.round((video.videoWidth - srcW) / 2);
+      srcY = 0;
+    } else {
+      // Video is taller than 3:4 - crop vertical margins
+      srcW = video.videoWidth;
+      srcH = Math.round(video.videoWidth / targetAspect);
+      srcX = 0;
+      srcY = Math.round((video.videoHeight - srcH) / 2);
+    }
+
+    // Standard output resolution in exact 3:4 portrait (1440x1920 or native crop size)
+    const outWidth = Math.min(1440, Math.max(900, srcW));
+    const outHeight = Math.round(outWidth / targetAspect);
+
     const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
+    canvas.width = outWidth;
+    canvas.height = outHeight;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    // Draw ONLY the 3:4 portion shown inside the viewfinder
+    ctx.drawImage(video, srcX, srcY, srcW, srcH, 0, 0, outWidth, outHeight);
 
     if (autoEnhance) {
-      const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const imgData = ctx.getImageData(0, 0, outWidth, outHeight);
       const d = imgData.data;
       const contrast = 1.25;
       const factor = (259 * (contrast * 255 + 255)) / (255 * (259 - contrast * 255));

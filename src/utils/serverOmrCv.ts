@@ -1,22 +1,32 @@
 import sharp from "sharp";
+import { OMRAnswer, OMRScanResult } from "../types";
+import {
+  DEFAULT_OMR_CONFIG,
+  LRN_COLS_X,
+  LRN_ROWS_Y,
+  OMRConfig,
+  QUESTION_COLUMNS,
+  QUESTION_ROWS_Y,
+  REF_HEIGHT,
+  REF_WIDTH,
+  TARGET_FIDUCIALS,
+} from "./omrConfig";
+import {
+  analyzeBubble,
+  classifyDigitColumn,
+  classifyQuestion,
+  DigitClassification,
+  QuestionClassification,
+} from "./omrMeasurementCore";
 
 interface Point {
   x: number;
   y: number;
 }
 
-interface BubbleMeasurement {
-  x: number;
-  y: number;
-  meanGray: number;
-  innerMeanGray: number;
-  fillRatio: number;
-  darkness: number;
-  innerDarkness: number;
-  score: number;
-}
-
-// Compute 3x3 perspective homography matrix mapping (dstX, dstY) -> (srcX, srcY)
+/**
+ * Computes 3x3 perspective homography matrix mapping (dstX, dstY) -> (srcX, srcY)
+ */
 function getPerspectiveTransform(
   srcPts: [Point, Point, Point, Point],
   dstPts: [Point, Point, Point, Point]
@@ -68,7 +78,9 @@ function getPerspectiveTransform(
   return [b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], 1.0];
 }
 
-// Warp source grayscale buffer to destination (W x H) using inverse homography
+/**
+ * Warps source grayscale buffer to canonical destination (W x H) using inverse homography
+ */
 function warpPerspectiveGrayscale(
   srcData: Uint8Array,
   srcW: number,
@@ -111,7 +123,9 @@ function warpPerspectiveGrayscale(
   return dst;
 }
 
-// Detect corner fiducials and sheet boundary
+/**
+ * Detects 4 corner fiducials and sheet boundary on grayscale buffer
+ */
 function detectFiducialsAccurately(
   gray: Uint8Array,
   w: number,
@@ -286,10 +300,94 @@ function detectFiducialsAccurately(
   };
 }
 
-export async function processOMRImageWithCV(imageBuffer: Buffer) {
+/**
+ * Generates an SVG debug overlay displaying classified bubbles and question diagnostics
+ */
+function buildDebugSvgOverlay(
+  lrnClassifications: DigitClassification[],
+  questionClassifications: QuestionClassification[],
+  config: OMRConfig
+): string {
+  let svgElements = "";
+
+  // 1. LRN Debug circles
+  for (let c = 0; c < 12; c++) {
+    const digitClass = lrnClassifications[c];
+    for (let r = 0; r <= 9; r++) {
+      const cx = LRN_COLS_X[c];
+      const cy = LRN_ROWS_Y[r];
+      const isSelected = digitClass.digit === r;
+      const m = digitClass.metrics[r];
+
+      if (isSelected) {
+        // Green highlight for chosen LRN digit
+        svgElements += `<circle cx="${cx}" cy="${cy}" r="${config.lrnBubbleRadius}" fill="rgba(16, 185, 129, 0.3)" stroke="#10B981" stroke-width="2.5"/>`;
+        svgElements += `<circle cx="${cx}" cy="${cy}" r="${config.lrnBubbleRadius * config.innerRadiusRatio}" fill="none" stroke="#059669" stroke-width="1.5"/>`;
+      } else if (m && m.score >= config.minScore) {
+        // Orange highlight if marked but runner up / ambiguous
+        svgElements += `<circle cx="${cx}" cy="${cy}" r="${config.lrnBubbleRadius}" fill="rgba(245, 158, 11, 0.25)" stroke="#F59E0B" stroke-width="2"/>`;
+      }
+    }
+  }
+
+  // 2. Question choices Debug circles & tags
+  questionClassifications.forEach((q) => {
+    const colGroup = QUESTION_COLUMNS.find((cg) => q.questionNumber >= cg.startQ && q.questionNumber <= cg.endQ);
+    if (!colGroup) return;
+
+    const rowIdx = q.questionNumber - colGroup.startQ;
+    const cy = QUESTION_ROWS_Y[rowIdx];
+    const opts = ["A", "B", "C", "D"] as const;
+
+    opts.forEach((opt) => {
+      const cx = colGroup[opt];
+      const m = q.metrics[opt];
+      const isAcceptedWinner = q.answer === opt;
+      const isPartMultiple = q.answer === "MULTIPLE" && m.score >= config.multipleScore;
+      const isCandidate = m.score >= config.minScore;
+
+      if (isAcceptedWinner) {
+        // Green: Single Winner
+        svgElements += `<circle cx="${cx}" cy="${cy}" r="${config.bubbleRadius}" fill="rgba(16, 185, 129, 0.35)" stroke="#10B981" stroke-width="2.5"/>`;
+        svgElements += `<circle cx="${cx}" cy="${cy}" r="${config.bubbleRadius * config.innerRadiusRatio}" fill="none" stroke="#059669" stroke-width="1.5"/>`;
+      } else if (isPartMultiple) {
+        // Red: Competing Multiple marks
+        svgElements += `<circle cx="${cx}" cy="${cy}" r="${config.bubbleRadius}" fill="rgba(239, 68, 68, 0.35)" stroke="#EF4444" stroke-width="2.5"/>`;
+      } else if (isCandidate) {
+        // Yellow/Orange: Ambiguous secondary mark
+        svgElements += `<circle cx="${cx}" cy="${cy}" r="${config.bubbleRadius}" fill="rgba(245, 158, 11, 0.25)" stroke="#F59E0B" stroke-width="2"/>`;
+      } else {
+        // Faint Gray: Empty bubble measurement zone
+        svgElements += `<circle cx="${cx}" cy="${cy}" r="${config.bubbleRadius}" fill="none" stroke="rgba(148, 163, 184, 0.35)" stroke-dasharray="2,2" stroke-width="1"/>`;
+      }
+    });
+
+    // Question diagnostic tag text
+    const labelX = colGroup.A - 52;
+    const tagText = q.isBlank
+      ? `Q${q.questionNumber}: -`
+      : q.isMultiple
+      ? `Q${q.questionNumber}: MULTI`
+      : `Q${q.questionNumber}: ${q.answer} (${Math.round(q.confidence * 100)}%)`;
+
+    const tagColor = q.isBlank ? "#64748B" : q.isMultiple ? "#EF4444" : "#059669";
+    svgElements += `<text x="${labelX}" y="${cy + 4}" font-family="monospace" font-size="11" font-weight="bold" fill="${tagColor}">${tagText}</text>`;
+  });
+
+  return `<svg width="${REF_WIDTH}" height="${REF_HEIGHT}" xmlns="http://www.w3.org/2000/svg">
+    ${svgElements}
+  </svg>`;
+}
+
+/**
+ * Server-side High-Speed Computer Vision OMR Engine
+ */
+export async function processOMRImageWithCV(
+  imageBuffer: Buffer,
+  customConfig: Partial<OMRConfig> = {}
+): Promise<OMRScanResult> {
   const startTime = Date.now();
-  const REF_WIDTH = 1467;
-  const REF_HEIGHT = 2048;
+  const config: OMRConfig = { ...DEFAULT_OMR_CONFIG, ...customConfig };
 
   // 1. Initial Grayscale load via Sharp C++
   const { data: rawGray, info } = await sharp(imageBuffer)
@@ -303,12 +401,7 @@ export async function processOMRImageWithCV(imageBuffer: Buffer) {
   // 2. Corner Fiducial Alignment & Perspective Warping
   const fiducials = detectFiducialsAccurately(rawGray, srcW, srcH);
   let normalizedGray: Uint8Array;
-
-  // Exact reference fiducial centers in 1467 x 2048 coordinate space
-  const targetTL: Point = { x: 110, y: 252 };
-  const targetTR: Point = { x: 1355, y: 252 };
-  const targetBR: Point = { x: 1355, y: 1928 };
-  const targetBL: Point = { x: 110, y: 1928 };
+  let alignmentStatus = "FIDUCIAL_PERSPECTIVE_LOCKED";
 
   if (fiducials) {
     normalizedGray = warpPerspectiveGrayscale(
@@ -318,9 +411,10 @@ export async function processOMRImageWithCV(imageBuffer: Buffer) {
       REF_WIDTH,
       REF_HEIGHT,
       [fiducials.tl, fiducials.tr, fiducials.br, fiducials.bl],
-      [targetTL, targetTR, targetBR, targetBL]
+      [TARGET_FIDUCIALS.tl, TARGET_FIDUCIALS.tr, TARGET_FIDUCIALS.br, TARGET_FIDUCIALS.bl]
     );
   } else {
+    alignmentStatus = "RESIZED_FALLBACK";
     const { data: resized } = await sharp(imageBuffer)
       .resize(REF_WIDTH, REF_HEIGHT, { fit: "fill" })
       .grayscale()
@@ -329,184 +423,93 @@ export async function processOMRImageWithCV(imageBuffer: Buffer) {
     normalizedGray = resized;
   }
 
-  // 3. Contrast & Darkness Normalization
-  let minLum = 255;
-  let maxLum = 0;
-  for (let i = 0; i < REF_WIDTH * REF_HEIGHT; i++) {
-    const v = normalizedGray[i];
-    if (v < minLum) minLum = v;
-    if (v > maxLum) maxLum = v;
-  }
-  const range = maxLum - minLum || 1;
-  const contrastStretched = new Uint8Array(REF_WIDTH * REF_HEIGHT);
-  for (let i = 0; i < REF_WIDTH * REF_HEIGHT; i++) {
-    contrastStretched[i] = Math.round(((normalizedGray[i] - minLum) / range) * 255);
-  }
-
-  // 4. Optical Density Evaluator using Circular Kernel with local centroid peak search
-  function evaluateBubble(expectedX: number, expectedY: number, radius = 10): BubbleMeasurement {
-    // Local peak search within +/- 6px for centroid registration
-    let bestX = expectedX;
-    let bestY = expectedY;
-    let minCoreGray = 255;
-
-    for (let dy = -6; dy <= 6; dy += 2) {
-      for (let dx = -6; dx <= 6; dx += 2) {
-        const cx = expectedX + dx;
-        const cy = expectedY + dy;
-        let sum = 0;
-        let cnt = 0;
-        for (let iy = -3; iy <= 3; iy++) {
-          for (let ix = -3; ix <= 3; ix++) {
-            const px = cx + ix;
-            const py = cy + iy;
-            if (px >= 0 && px < REF_WIDTH && py >= 0 && py < REF_HEIGHT) {
-              sum += contrastStretched[py * REF_WIDTH + px];
-              cnt++;
-            }
-          }
-        }
-        const avg = cnt > 0 ? sum / cnt : 255;
-        if (avg < minCoreGray) {
-          minCoreGray = avg;
-          bestX = cx;
-          bestY = cy;
-        }
-      }
-    }
-
-    let sumGray = 0;
-    let sumInnerGray = 0;
-    let totalPixels = 0;
-    let innerPixels = 0;
-    let darkPixels = 0;
-
-    const rInt = Math.ceil(radius);
-    const rSq = radius * radius;
-    const innerRSq = (radius * 0.55) * (radius * 0.55);
-
-    for (let dy = -rInt; dy <= rInt; dy++) {
-      for (let dx = -rInt; dx <= rInt; dx++) {
-        const dSq = dx * dx + dy * dy;
-        if (dSq <= rSq) {
-          const px = Math.round(bestX + dx);
-          const py = Math.round(bestY + dy);
-          if (px >= 0 && px < REF_WIDTH && py >= 0 && py < REF_HEIGHT) {
-            const val = contrastStretched[py * REF_WIDTH + px];
-            sumGray += val;
-            totalPixels++;
-            if (val < 140) darkPixels++;
-
-            if (dSq <= innerRSq) {
-              sumInnerGray += val;
-              innerPixels++;
-            }
-          }
-        }
-      }
-    }
-
-    const meanGray = totalPixels > 0 ? sumGray / totalPixels : 255;
-    const innerMeanGray = innerPixels > 0 ? sumInnerGray / innerPixels : 255;
-    const fillRatio = totalPixels > 0 ? darkPixels / totalPixels : 0;
-    const darkness = 1 - meanGray / 255;
-    const innerDarkness = 1 - innerMeanGray / 255;
-    const score = darkness * 0.35 + innerDarkness * 0.65;
-
-    return {
-      x: bestX,
-      y: bestY,
-      meanGray,
-      innerMeanGray,
-      fillRatio,
-      darkness,
-      innerDarkness,
-      score,
-    };
-  }
-
-  // 5. LRN Extraction (12 columns x 10 rows: 0..9)
-  const lrnColsX = [322, 362, 403, 443, 483, 522, 562, 601, 641, 681, 723, 760];
-  const lrnRowsY = [428, 473, 518, 563, 608, 653, 697, 738, 783, 828];
-
+  // 3. Evaluate LRN (12 Columns x 10 Digits) using Two-Zone Measurement Model
+  const lrnClassifications: DigitClassification[] = [];
   let extractedLRN = "";
-  for (let c = 0; c < 12; c++) {
-    const colScores: { digit: number; score: number; mean: number }[] = [];
-    for (let r = 0; r <= 9; r++) {
-      const m = evaluateBubble(lrnColsX[c], lrnRowsY[r], 9);
-      colScores.push({ digit: r, score: m.score, mean: m.meanGray });
-    }
-    colScores.sort((a, b) => b.score - a.score);
-    const top = colScores[0];
-    const second = colScores[1];
 
-    if (top.score >= 0.38 && top.mean <= 165) {
-      if (second && second.score >= 0.38 && second.score / top.score >= 0.85) {
-        extractedLRN += "?";
-      } else {
-        extractedLRN += top.digit.toString();
-      }
-    } else {
-      extractedLRN += "?";
+  for (let c = 0; c < 12; c++) {
+    const digitMeasurements = [];
+    for (let r = 0; r <= 9; r++) {
+      const metric = analyzeBubble(
+        normalizedGray,
+        REF_WIDTH,
+        REF_HEIGHT,
+        LRN_COLS_X[c],
+        LRN_ROWS_Y[r],
+        config.lrnBubbleRadius,
+        config
+      );
+      digitMeasurements.push({ digit: r, metric });
     }
+
+    const classification = classifyDigitColumn(digitMeasurements, config);
+    lrnClassifications.push(classification);
+    extractedLRN += classification.digitChar;
   }
 
-  // 6. Answers Extraction (3 Columns of 20 Items = 60 Questions)
-  const qCols3 = [
-    { startQ: 1, A: 392, B: 436, C: 480, D: 524 },
-    { startQ: 21, A: 673, B: 717, C: 761, D: 807 },
-    { startQ: 41, A: 951, B: 997, C: 1041, D: 1087 },
-  ];
-  const qRows3Y = [
-    947, 997, 1046, 1096, 1144, 1193, 1240, 1287, 1338, 1386,
-    1464, 1514, 1563, 1611, 1659, 1708, 1757, 1806, 1854, 1903,
-  ];
+  // 4. Evaluate 60 Items (3 Columns x 20 Rows) using Question-Level Collective Classifier
+  const questionClassifications: QuestionClassification[] = [];
+  const answers: OMRAnswer[] = [];
 
-  const optionsList = ["A", "B", "C", "D"] as const;
-  const answers = [];
+  let filledCount = 0;
+  let blankCount = 0;
+  let multipleCount = 0;
+  let sumConfidence = 0;
 
   for (let colIdx = 0; colIdx < 3; colIdx++) {
-    const col = qCols3[colIdx];
+    const col = QUESTION_COLUMNS[colIdx];
     for (let r = 0; r < 20; r++) {
-      const itemNum = col.startQ + r;
-      const rowY = qRows3Y[r];
+      const qNum = col.startQ + r;
+      const rowY = QUESTION_ROWS_Y[r];
+      const opts = ["A", "B", "C", "D"] as const;
 
-      const measurements = optionsList.map((opt) => {
-        const bx = col[opt];
-        const m = evaluateBubble(bx, rowY, 10);
-        return { opt, ...m };
-      });
+      const measurements = opts.map((opt) => ({
+        option: opt,
+        metric: analyzeBubble(
+          normalizedGray,
+          REF_WIDTH,
+          REF_HEIGHT,
+          col[opt],
+          rowY,
+          config.bubbleRadius,
+          config
+        ),
+      }));
 
-      measurements.sort((a, b) => b.score - a.score);
-      const first = measurements[0];
-      const second = measurements[1];
+      const qClass = classifyQuestion(measurements, qNum, config);
+      questionClassifications.push(qClass);
 
-      let selectedOption: "A" | "B" | "C" | "D" | "MULTIPLE" | null = null;
-      let confidence = 98;
+      if (qClass.isBlank) blankCount++;
+      else if (qClass.isMultiple) multipleCount++;
+      else filledCount++;
 
-      if (first.score >= 0.38 && first.meanGray <= 165) {
-        if (second && second.score >= 0.38 && second.score / first.score >= 0.85) {
-          selectedOption = "MULTIPLE";
-          confidence = 90;
-        } else {
-          selectedOption = first.opt;
-          confidence = Math.min(99, Math.round(75 + first.score * 30));
-        }
-      } else {
-        selectedOption = null;
-        confidence = 98;
-      }
+      sumConfidence += qClass.confidence;
 
       answers.push({
-        item_number: itemNum,
-        selected_option: selectedOption,
-        confidence,
+        item_number: qNum,
+        selected_option: qClass.answer,
+        confidence: Math.round(qClass.confidence * 100),
       });
     }
   }
 
   answers.sort((a, b) => a.item_number - b.item_number);
+  const avgConfidence = Math.round((sumConfidence / 60) * 100) / 100;
 
+  // 5. Generate Diagnostic Debug Preview Overlay Image
+  const debugSvg = buildDebugSvgOverlay(lrnClassifications, questionClassifications, config);
+  const baseCanonicalJpeg = await sharp(Buffer.from(normalizedGray), {
+    raw: { width: REF_WIDTH, height: REF_HEIGHT, channels: 1 },
+  })
+    .jpeg()
+    .toBuffer();
+
+  const debugCompositeBuffer = await sharp(baseCanonicalJpeg)
+    .composite([{ input: Buffer.from(debugSvg), blend: "over" }])
+    .jpeg({ quality: 80 })
+    .toBuffer();
+
+  const debugPreview = `data:image/jpeg;base64,${debugCompositeBuffer.toString("base64")}`;
   const processingTimeMs = Date.now() - startTime;
 
   return {
@@ -521,5 +524,15 @@ export async function processOMRImageWithCV(imageBuffer: Buffer) {
     answers,
     scan_timestamp: new Date().toISOString(),
     processing_time_ms: processingTimeMs,
+    debug_preview: debugPreview,
+    telemetry: {
+      algorithm: "TWO_ZONE_CIRCULAR_RELATIVE_NORMALIZED",
+      totalBubblesEvaluated: 12 * 10 + 60 * 4,
+      filledCount,
+      blankCount,
+      multipleCount,
+      averageConfidence: avgConfidence,
+      alignmentStatus,
+    },
   };
 }
